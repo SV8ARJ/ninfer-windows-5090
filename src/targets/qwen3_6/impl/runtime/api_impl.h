@@ -18,9 +18,13 @@ SequencePlan<Variant>::SequencePlan(
     : impl_(std::move(impl)) {}
 
 template <>
-SequencePlan<Variant>::SequencePlan(SequencePlan&&) noexcept = default;
+SequencePlan<Variant>::SequencePlan(SequencePlan&& other) noexcept
+    : impl_(std::move(other.impl_)) {}
 template <>
-SequencePlan<Variant>& SequencePlan<Variant>::operator=(SequencePlan&&) noexcept = default;
+SequencePlan<Variant>& SequencePlan<Variant>::operator=(SequencePlan&& other) noexcept {
+    impl_ = std::move(other.impl_);
+    return *this;
+}
 template <>
 SequencePlan<Variant>::~SequencePlan() = default;
 

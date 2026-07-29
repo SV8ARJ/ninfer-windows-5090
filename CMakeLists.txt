@@ -24,6 +24,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling
+if(MSVC)
+  add_compile_definitions(NOMINMAX)
+endif()
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -55,11 +58,34 @@ if(NINFER_BUILD_APPS OR BUILD_TESTING)
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-  libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
-if(NINFER_BUILD_MEDIA_ACQUIRE)
-  pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
+if(WIN32)
+  # Windows: MSVC-compatible import libraries generated from MSYS2 .def files.
+  # DLLs live at C:/msys64/mingw64/bin/.
+  # Filtered include directories avoid shadowing MSVC system headers with
+  # MinGW versions (e.g. windows.h, winsock2.h, winnt.h).
+  add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+  target_include_directories(PkgConfig::FFMPEG INTERFACE
+    "${PROJECT_SOURCE_DIR}/windows-libs/ffmpeg-include")
+  target_compile_definitions(PkgConfig::FFMPEG INTERFACE __STDC_CONSTANT_MACROS)
+  target_link_libraries(PkgConfig::FFMPEG INTERFACE
+    "${PROJECT_SOURCE_DIR}/windows-libs/avformat.lib"
+    "${PROJECT_SOURCE_DIR}/windows-libs/avcodec.lib"
+    "${PROJECT_SOURCE_DIR}/windows-libs/avutil.lib"
+    "${PROJECT_SOURCE_DIR}/windows-libs/swscale.lib")
+
+  if(NINFER_BUILD_MEDIA_ACQUIRE)
+    add_library(PkgConfig::LIBCURL INTERFACE IMPORTED)
+    target_include_directories(PkgConfig::LIBCURL INTERFACE
+      "${PROJECT_SOURCE_DIR}/windows-libs/curl-include")
+    target_link_libraries(PkgConfig::LIBCURL INTERFACE "${PROJECT_SOURCE_DIR}/windows-libs/libcurl.lib")
+  endif()
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
+  if(NINFER_BUILD_MEDIA_ACQUIRE)
+    pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
+  endif()
 endif()
 find_package(Threads REQUIRED)
 
