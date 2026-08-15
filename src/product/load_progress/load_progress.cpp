@@ -1,6 +1,13 @@
 #include "product/load_progress/load_progress.h"
 
+#ifdef _WIN32
+#include <io.h>
+#define stderr_fileno _fileno(stderr)
+#define isatty _isatty
+#else
 #include <unistd.h>
+#define stderr_fileno STDERR_FILENO
+#endif
 
 #include <algorithm>
 #include <array>
@@ -60,7 +67,7 @@ std::string format_line(std::string_view phase, std::uint64_t done, std::uint64_
 } // namespace
 
 LoadProgressRendererOptions stderr_load_progress_options() noexcept {
-    if (::isatty(STDERR_FILENO) == 1) {
+    if (isatty(stderr_fileno) == 1) {
         return LoadProgressRendererOptions{
             .mode                 = LoadProgressOutputMode::Interactive,
             .min_refresh_interval = std::chrono::milliseconds(200),

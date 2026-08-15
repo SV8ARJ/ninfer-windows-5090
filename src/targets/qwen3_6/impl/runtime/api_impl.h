@@ -89,9 +89,13 @@ RequestBasePlan<Variant>::RequestBasePlan(
     : impl_(std::move(impl)) {}
 
 template <>
-RequestBasePlan<Variant>::RequestBasePlan(RequestBasePlan&&) noexcept = default;
+RequestBasePlan<Variant>::RequestBasePlan(RequestBasePlan&& other) noexcept
+    : impl_(std::move(other.impl_)) {}
 template <>
-RequestBasePlan<Variant>& RequestBasePlan<Variant>::operator=(RequestBasePlan&&) noexcept = default;
+RequestBasePlan<Variant>& RequestBasePlan<Variant>::operator=(RequestBasePlan&& other) noexcept {
+    impl_ = std::move(other.impl_);
+    return *this;
+}
 template <>
 RequestBasePlan<Variant>::~RequestBasePlan() = default;
 
@@ -106,9 +110,13 @@ RequestPlan<Variant>::RequestPlan(std::unique_ptr<detail::RequestPlanImpl<Varian
     : impl_(std::move(impl)) {}
 
 template <>
-RequestPlan<Variant>::RequestPlan(RequestPlan&&) noexcept = default;
+RequestPlan<Variant>::RequestPlan(RequestPlan&& other) noexcept
+    : impl_(std::move(other.impl_)) {}
 template <>
-RequestPlan<Variant>& RequestPlan<Variant>::operator=(RequestPlan&&) noexcept = default;
+RequestPlan<Variant>& RequestPlan<Variant>::operator=(RequestPlan&& other) noexcept {
+    impl_ = std::move(other.impl_);
+    return *this;
+}
 template <>
 RequestPlan<Variant>::~RequestPlan() = default;
 
