@@ -6,6 +6,8 @@
 Visual Studio 2022 (MSVC) and CUDA 13.1 targeting sm_120a (RTX 5090)
 
 Made possible with the help of Deepseek. Sharing in the hope that someone finds it useful.
+Use at your own risk.
+All credit and thanks to the original author.
 
 ## Original readme
 
