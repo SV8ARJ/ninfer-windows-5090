@@ -458,7 +458,13 @@ $env:PATH = "$env:APPDATA\Python\Python314\Scripts;$env:PATH"
 
 hf download neroued/Qwen3.6-27B-NInfer qwen3_6_27b.ninfer --local-dir L:\Temp\ninfer\bin\models
 hf download neroued/Qwen3.6-35B-A3B-NInfer qwen3_6_35b_a3b.ninfer --local-dir L:\Temp\ninfer\bin\models
+hf download neroued/Qwen3.8-27B-NInfer qwen3_8_27b_nvfp4.ninfer --local-dir L:\Temp\ninfer\bin\models
 ```
+
+The FP8/Qwen3.8 upstream additions (row-scaled FP8 ops, qwen3.8 nvfp4 converter/runtime) compile on
+Windows with no extra porting; they add no `__grid_constant__` TMA descriptors or POSIX calls beyond
+the files listed above. `qwen3_8_27b_nvfp4.ninfer` loads and serves through the same `.ninfer` route
+after the sync above.
 
 Expected hashes:
 
@@ -473,6 +479,7 @@ Expected hashes:
 
 ```cmd
 ninfer-serve.exe models\qwen3_6_27b.ninfer --model-id qwen3.6-27b --host 0.0.0.0 --port 8080
+ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b-nvfp4 --host 0.0.0.0 --port 8080
 ```
 
 Edit `run.cmd` to add flags (e.g. `--vision`, `--spec mtp --draft-tokens 3`).
@@ -504,8 +511,8 @@ Copy-Item L:\Temp\ninfer\build\apps\ninfer-serve.exe L:\Temp\ninfer\bin\
 | `src/product/media_acquire/acquire.cpp` | BSD socket API (`arpa/inet.h` etc.) → Winsock2; wide-char `path::starts_with` fix |
 | `src/product/load_progress/load_progress.cpp` | `isatty`/`STDERR_FILENO` → `_isatty`/`stderr_fileno` from `<io.h>` |
 | `src/serve/console_log.cpp` | `localtime_r` → `localtime_s` (Win32 arg order) |
-| `src/ops/linear/nvfp4/nvfp4_w4a4_tma.cuh` / `.cu` | `__grid_constant__` descriptors passed by pointer on `_WIN32` (by-value 128-aligned aggregate fails MSVC C2719); kernel body aliases ref `&d` |
-| `src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_w4a4_tma.cuh` / `.cu` | Same pointer-pass fix for the swiglu TMA kernel and its launch site |
+| `src/ops/linear/nvfp4/nvfp4_w4a4_tma.cuh` / `.cu` | `__grid_constant__` tensor-map descriptors carried by value as a plain 8-byte-aligned `Nvfp4W4a4TmaDescriptorBytes` on `_WIN32` (by-value `alignas(128)` aggregate fails MSVC C2719; a plain host-stack pointer is not GPU-readable by TMA and is invalid under CUDA Graph capture/replay). The kernel reinterprets the grid-constant carrier as the aligned struct |
+| `src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_w4a4_tma.cuh` / `.cu` | Same by-value descriptor-carrier fix for the swiglu TMA kernel and its launch site |
 | `src/targets/qwen3_6/impl/runtime/api_impl.h` | `SequencePlan`, `RequestPlan`, `RequestBasePlan` move ctor/assign: explicit `impl_(std::move(...))` body instead of `= default` (MSVC does not emit out-of-line defaulted template members) |
 
 ### Architecture notes
@@ -527,9 +534,16 @@ Copy-Item L:\Temp\ninfer\build\apps\ninfer-serve.exe L:\Temp\ninfer\bin\
   class template does not emit a linkable symbol when the move is used from another TU. Give these
   an explicit body (`impl_(std::move(other.impl_))`) on all platforms.
 - **`__grid_constant__` by-value TMA descriptors**: MSVC rejects passing `alignas(128)` aggregates
-  (containing `CUtensorMap`) by value (C2719). Kernels take a plain `const Descriptors*` on `_WIN32`
-  and keep the `__grid_constant__` by-value form on Linux; the body aliases a reference with
-  `#ifdef _WIN32` `= *ptr` / `#else` `= by-value`.
+  (containing `CUtensorMap`) by value (C2719), and CUDA 13.1 nvcc rejects `__grid_constant__` on a
+  pointer parameter. Passing a plain host-stack pointer on Windows is broken: the GPU cannot source a
+  tensor-map descriptor from a host address, and CUDA Graph capture records that host address and
+  `re-reads it at replay after the stack is repurposed`, yielding the intermittent `illegal memory
+  access` seen on the second nvfp4 request. Windows therefore carries the identical four maps by
+  value as `Nvfp4W4a4TmaDescriptorBytes` (`alignas(8) CUtensorMap[4]`, `__grid_constant__`); the
+  bytes live in grid-constant memory (a valid `cp.async.bulk.tensor` source) and a by-value
+  parameter is snapshotted by graph capture, reproducing the Linux semantics. The kernel body
+  reinterprets `&descriptor_value.maps[0]` as the aligned `Nvfp4W4a4TmaDescriptors`. Leave the
+  `#ifdef _WIN32` branches in both `.cuh` kernels and their `.cu` launch sites consistent.
 
 ## Commits
 
