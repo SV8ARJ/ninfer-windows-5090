@@ -1,4 +1,4 @@
-# NInfer
+# NInfer - Windows - 5090 --- WIP
 
 > Selected checkpoints. Maximum single-GPU inference performance.
 
