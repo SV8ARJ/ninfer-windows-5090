@@ -9,6 +9,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#ifdef _WIN32
+#include <cstring>
+#endif
 
 namespace ninfer::ops::detail {
 namespace {
@@ -72,8 +75,12 @@ void launch_tma(const std::uint8_t* activation_codes, const std::uint8_t* activa
 
     const dim3 grid(Geometry::kOutputRows / Schedule::kBlockN, tokens / Schedule::kBlockM);
 #ifdef _WIN32
+    Nvfp4W4a4TmaDescriptorBytes descriptor_bytes{};
+    static_assert(sizeof(descriptor_bytes) == sizeof(descriptors));
+    std::memcpy(descriptor_bytes.maps, &descriptors, sizeof(descriptors));
     nvfp4_w4a4_tma_kernel<Geometry, Schedule>
-        <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(&descriptors, alpha, epilogue, output);
+        <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptor_bytes, alpha, epilogue,
+                                                             output);
 #else
     nvfp4_w4a4_tma_kernel<Geometry, Schedule>
         <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptors, alpha, epilogue, output);

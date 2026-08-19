@@ -48,7 +48,7 @@ __global__ __launch_bounds__(
     Schedule::
         kMinBlocksPerSm) void nvfp4_linear_swiglu_w4a4_tma_kernel(
 #ifdef _WIN32
-    const Nvfp4W4a4TmaDescriptors* descriptors,
+    const __grid_constant__ Nvfp4W4a4TmaDescriptorBytes descriptors_value,
 #else
     const __grid_constant__
         Nvfp4W4a4TmaDescriptors
@@ -56,7 +56,8 @@ __global__ __launch_bounds__(
 #endif
     float alpha, __nv_bfloat16* __restrict__ output) {
 #ifdef _WIN32
-    const Nvfp4W4a4TmaDescriptors& d = *descriptors;
+    const Nvfp4W4a4TmaDescriptors& d =
+        *reinterpret_cast<const Nvfp4W4a4TmaDescriptors*>(&descriptors_value.maps[0]);
 #else
     const auto& d = descriptors;
 #endif

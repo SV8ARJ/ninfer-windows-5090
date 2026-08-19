@@ -21,6 +21,19 @@ struct alignas(128) Nvfp4W4a4TmaDescriptors {
     CUtensorMap b_scales;
 };
 
+// MSVC rejects passing an alignas(128) aggregate by value (C2719), which blocks the
+// Linux __grid_constant__ by-value parameter. The carrier below holds the identical
+// four tensor maps as a plain (8-byte aligned) by-value structure. Passed by value,
+// the bytes live in grid-constant memory exactly like the Linux path, which is a valid
+// tensor-map source for cp.async.bulk.tensor, and CUDA Graph capture snapshots the
+// parameter bytes so replay never re-reads a host stack address. The byte layout is the
+// same four CUtensorMap members, so the kernel reinterprets it as the aligned struct.
+struct alignas(8) Nvfp4W4a4TmaDescriptorBytes {
+    CUtensorMap maps[4];
+};
+
+static_assert(sizeof(Nvfp4W4a4TmaDescriptorBytes) == sizeof(Nvfp4W4a4TmaDescriptors));
+
 inline void nvfp4_check_driver(CUresult status, const char* operation) {
     if (status == CUDA_SUCCESS) { return; }
     const char* name = nullptr;
@@ -179,21 +192,25 @@ __device__ __forceinline__ void nvfp4_tma_load_2d(void* destination, const CUten
                  : "memory");
 }
 
-// MSVC cannot pass an alignas(128) aggregate by value (C2719), so the descriptor set
-// travels by pointer on Windows. The pointee remains 128-byte aligned, which satisfies
-// the cp.async.bulk.tensor requirement; Linux keeps the __grid_constant__ by-value path.
+// MSVC cannot pass an alignas(128) aggregate by value (C2719). Windows therefore
+// carries the identical four tensor maps by value as a plain 8-byte-aligned struct
+// marked __grid_constant__. The bytes are placed in grid-constant memory (a valid
+// tensor-map source for cp.async.bulk.tensor) and the parameter is snapshotted by
+// CUDA Graph capture, reproducing the Linux by-value semantics without a host stack
+// pointer ever being recorded or re-read at graph replay.
 template <class Geometry, class Schedule, class Epilogue, class OutputPolicy>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4_tma_kernel(
 #ifdef _WIN32
-    const Nvfp4W4a4TmaDescriptors* descriptors,
+    const __grid_constant__ Nvfp4W4a4TmaDescriptorBytes descriptors_value,
 #else
     const __grid_constant__ Nvfp4W4a4TmaDescriptors descriptors,
 #endif
     float alpha, const __grid_constant__ Epilogue epilogue,
     const __grid_constant__ OutputPolicy output) {
 #ifdef _WIN32
-    const Nvfp4W4a4TmaDescriptors& d = *descriptors;
+    const Nvfp4W4a4TmaDescriptors& d =
+        *reinterpret_cast<const Nvfp4W4a4TmaDescriptors*>(&descriptors_value.maps[0]);
 #else
     const auto& d = descriptors;
 #endif
