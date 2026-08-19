@@ -1,4 +1,4 @@
-# NInfer - Windows - 5090 --- WIP
+# NInfer - Windows - 5090
 
 > Selected checkpoints. Maximum single-GPU inference performance.
 
@@ -6,6 +6,22 @@
 Visual Studio 2022 (MSVC) and CUDA 13.1 targeting sm_120a (RTX 5090)
 
 Made possible with the help of Deepseek. Sharing in the hope that someone finds it useful.
+
+>  (RTX5090 : 400W maximum)
+
+> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
+
+[info] ninfer-serve: [req 1] done finish=stop_token prompt=205 gen=59061 cache=0 reuse=full_reset ttft=304ms prefill=680.0tok/s decode=136.5tok/s wall=433.85s speculative=mtp 2.83tok/round (61.1%)
+
+
+-----
+
+> ninfer-serve.exe models\qwen3_6_35b_a3b.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 4 --spec mtp  --default-max-tokens 132000
+
+ [info] ninfer-serve: [req 3] done finish=stop_token prompt=175 gen=7664 cache=0 reuse=full_reset ttft=247ms prefill=725.9tok/s decode=586.1tok/s wall=13.38s speculative=mtp 4.04tok/round (76.0%)
+
+-----
+
 
 ## Original readme
 
