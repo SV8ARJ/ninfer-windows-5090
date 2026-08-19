@@ -7,7 +7,9 @@ Visual Studio 2022 (MSVC) and CUDA 13.1 targeting sm_120a (RTX 5090)
 
 Made possible with the help of Deepseek. Sharing in the hope that someone finds it useful.
 
->  (RTX5090 : 400W maximum)
+>  RTX5090 : 400W maximum
+<img width="234" height="333" alt="2026-08-19 11_06_34-System Resources v0 2" src="https://github.com/user-attachments/assets/0eefa086-2e5d-4369-b7c7-902444d817ea" />
+
 
 > ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
 
