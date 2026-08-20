@@ -74,15 +74,52 @@ void launch_nvfp4_linear_swiglu_w4a4_tma(const std::uint8_t* activation_codes,
         activation_codes, activation_scales, weight_codes, weight_scales, tokens);
     constexpr int kPairN = M256N128S3::kBlockN / 2;
     const dim3 grid((Geometry::kOutputRows / 2) / kPairN, tokens / M256N128S3::kBlockM);
+    const unsigned cluster_y = static_cast<unsigned>(tokens / M256N128S3::kBlockM);
 #ifdef _WIN32
     Nvfp4W4a4TmaDescriptorBytes descriptor_bytes{};
     static_assert(sizeof(descriptor_bytes) == sizeof(descriptors));
     std::memcpy(descriptor_bytes.maps, &descriptors, sizeof(descriptors));
-    nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>
-        <<<grid, M256N128S3::kThreads, kSharedBytes, stream>>>(descriptor_bytes, alpha, output);
+    if (cluster_y > 1 && cluster_y <= 4) {
+        cudaLaunchAttribute attribute{};
+        attribute.id               = cudaLaunchAttributeClusterDimension;
+        attribute.val.clusterDim.x = 1;
+        attribute.val.clusterDim.y = cluster_y;
+        attribute.val.clusterDim.z = 1;
+        cudaLaunchConfig_t config{};
+        config.gridDim          = grid;
+        config.blockDim         = dim3(M256N128S3::kThreads);
+        config.dynamicSmemBytes = kSharedBytes;
+        config.stream           = stream;
+        config.attrs            = &attribute;
+        config.numAttrs         = 1;
+        CUDA_CHECK(cudaLaunchKernelEx(
+            &config, nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>, descriptor_bytes,
+            alpha, output));
+    } else {
+        nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>
+            <<<grid, M256N128S3::kThreads, kSharedBytes, stream>>>(descriptor_bytes, alpha, output);
+    }
 #else
-    nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>
-        <<<grid, M256N128S3::kThreads, kSharedBytes, stream>>>(descriptors, alpha, output);
+    if (cluster_y > 1 && cluster_y <= 4) {
+        cudaLaunchAttribute attribute{};
+        attribute.id               = cudaLaunchAttributeClusterDimension;
+        attribute.val.clusterDim.x = 1;
+        attribute.val.clusterDim.y = cluster_y;
+        attribute.val.clusterDim.z = 1;
+        cudaLaunchConfig_t config{};
+        config.gridDim          = grid;
+        config.blockDim         = dim3(M256N128S3::kThreads);
+        config.dynamicSmemBytes = kSharedBytes;
+        config.stream           = stream;
+        config.attrs            = &attribute;
+        config.numAttrs         = 1;
+        CUDA_CHECK(cudaLaunchKernelEx(
+            &config, nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>, descriptors, alpha,
+            output));
+    } else {
+        nvfp4_linear_swiglu_w4a4_tma_kernel<Geometry, M256N128S3>
+            <<<grid, M256N128S3::kThreads, kSharedBytes, stream>>>(descriptors, alpha, output);
+    }
 #endif
     CUDA_CHECK(cudaGetLastError());
 }

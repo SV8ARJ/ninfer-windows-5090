@@ -637,6 +637,27 @@ RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public Ops, 256 MiB L2 flush,
 criteria, guard/input-preservation checks, CUDA Graph capture, and two consecutive replays for the
 clustered `T=1024` routes.
 
+### 2026-08-20: Cluster fused TMA SwiGLU token tiles
+
+**Status:** completed and retained.
+
+The fused NVFP4 TMA LinearSwiGLU route now clusters all M256 token tiles for `T=512`, `768`, and
+`1024`, using `1x2x1`, `1x3x1`, and `1x4x1` cluster dimensions respectively. `T=256` retains the
+ordinary one-CTA launch. Each CTA keeps its existing private S3 TMA pipeline and fused SiLU-multiply
+epilogue.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public LinearSwiGLU, 256 MiB L2 flush,
+20 warmups, and 100 measured launches:
+
+| T | Ordinary launch | Clustered launch | Change |
+|---:|---:|---:|---:|
+| 512 | 234.592 us | 219.200 us | -6.6% |
+| 768 | 328.928 us | 300.192 us | -8.7% |
+| 1024 | 435.968 us | 403.232 us | -7.5% |
+
+`ninfer_linear_swiglu_nvfp4_test` passes the independent numerical oracle, workspace/guard checks,
+CUDA Graph capture, and two consecutive replays for every clustered point.
+
 ## Optimization Map
 
 ### Activation quantization

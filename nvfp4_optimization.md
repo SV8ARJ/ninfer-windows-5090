@@ -660,6 +660,11 @@ Cluster placement is also retained for the S3 AttentionInputProj and GdnInputPro
 routes at `T=1024`. Complete public-Op latency improves by 5.2% and 10.3%, respectively, with
 independent numerical qualification and repeated CUDA Graph replay.
 
+Fused TMA LinearSwiGLU now clusters its M256 token tiles at `T=512`, `768`, and `1024`. Complete
+public-Op latency improves by 6.6%, 8.7%, and 7.5%, respectively. `T=256` remains an ordinary
+one-CTA launch; all clustered points pass independent numerical qualification and repeated CUDA
+Graph replay.
+
 ## 10. Initial Success Criteria
 
 The first optimization campaign is complete when it delivers all of the following:
