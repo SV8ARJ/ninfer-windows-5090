@@ -140,8 +140,8 @@ fused workspace:                approximately 2.8125 MiB
 ```
 
 This demonstrates that eliminating the full gate/up intermediate improves both latency and memory
-requirements. Current routing now uses fused TMA at every positive M256 point from `T=256`; other
-values above `T=48` still use the materialized fallback.
+requirements. Current routing now uses fused cp.async through `T=96` and fused TMA at every positive
+M256 point from `T=256`; other values above `T=96` use the materialized fallback.
 
 ### 3.5 End-to-end relevance
 
@@ -165,13 +165,14 @@ Current `AllowA4` routing in
 |---:|---|
 | 1 | fused A16 decode |
 | 2..4 | fused A16 small-T |
-| 5..48 | fused W4A4 cp.async |
+| 5..96 | fused W4A4 cp.async |
 | positive multiples of 256 from 256 | fused W4A4 TMA |
 | all other A4 T | materialized Linear followed by `silu_mul` |
 
 The first completed optimization admitted fused TMA for every positive M256 token count from
-`T=256`; measurements and verification are recorded in [`nvfp4.md`](nvfp4.md). The remaining gap is
-non-M256 values above `T=48`, which still materialize the full gate/up projection.
+`T=256`; a second completed optimization extended fused cp.async through `T=96`. Measurements and
+verification are recorded in [`nvfp4.md`](nvfp4.md). The remaining gap is non-M256 values above
+`T=96`, which still materialize the full gate/up projection.
 
 ### 4.2 GDN
 
@@ -271,12 +272,18 @@ Avoid materializing `[34816,T]` BF16 gate/up output and avoid the separate `silu
 - faster complete LinearSwiGLU at every newly admitted T;
 - lower DRAM write/read traffic;
 - lower workspace high-water mark;
-- no regression at `T=5..48` or `T=1024`;
+- no regression at `T=5..96` or the qualified M256 TMA points;
 - direct oracle qualification for each arithmetic profile.
 
-## Phase 2: Develop an SM120-Native Large-T Mainloop
+## Phase 2: SM120-Native Large-T Mainloop Feasibility
 
-Investigate a `tcgen05`/TMEM-based NVFP4 mainloop designed specifically for `sm_120a`.
+**Outcome:** rejected on 2026-08-20. CUDA 13.1 and RTX 5090 `sm_120a` do not support Tensor Memory or
+`tcgen05`; those facilities are exposed for `sm_100`, `sm_103`, and `sm_110`. Large-T kernel work
+must use the supported warp-level NVFP4 `mma.sync` instruction. The feasibility evidence is recorded
+in [`nvfp4.md`](nvfp4.md).
+
+The original proposal was to investigate a `tcgen05`/TMEM-based NVFP4 mainloop designed specifically
+for `sm_120a`. It is retained below as the rejected experiment definition.
 
 ### Development order
 
@@ -305,6 +312,10 @@ Investigate a `tcgen05`/TMEM-based NVFP4 mainloop designed specifically for `sm_
 - no CUDA Graph replay or Windows descriptor regression.
 
 ## Phase 3: Quantized MLP Handoff
+
+**Outcome:** the first inline-epilogue architecture was rejected on 2026-08-20. It improved complete
+post-mixer latency by 0.6–1.7% at `T=256..768` but regressed `T=1024` by 1.1%. The candidate was
+removed; measurements and the architectural conclusion are recorded in [`nvfp4.md`](nvfp4.md).
 
 The MLP sequence is:
 
@@ -355,6 +366,12 @@ The temporary A4 handoff is approximately 9.6 MiB for codes plus scales.
 - stable replay over repeated requests.
 
 ## Phase 4: Fused A4 GDN Pipeline
+
+**Progress:** a low-risk Snapshot post-kernel tile experiment was rejected on 2026-08-20. Increasing
+the warp tile from 8 to 32 tokens reduced duplicate projected reads but regressed complete
+`T=1024` Snapshot latency by 0.6–1.1%. The original schedule was restored. Investigation also showed
+that Engine prefill uses projection plus `causal_conv1d_silu`, not the Snapshot Op; future fusion
+must target that actual composition. Details are recorded in [`nvfp4.md`](nvfp4.md).
 
 Develop a complete A4 GDN route that avoids materializing the large projection parent before
 convolution and publication.
