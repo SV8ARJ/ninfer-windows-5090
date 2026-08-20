@@ -11,7 +11,7 @@ Made possible with the help of Deepseek. Sharing in the hope that someone finds 
 <img width="234" height="333" alt="2026-08-19 11_06_34-System Resources v0 2" src="https://github.com/user-attachments/assets/0eefa086-2e5d-4369-b7c7-902444d817ea" />
 
 
-### Second release - optimized with Sol
+### Second release - NVFP4 optimized with Sol
  low thinking : around 170t/s (about 200t/sec with no power limit - 600 W)
 
  medium thinking : around 140t/s
