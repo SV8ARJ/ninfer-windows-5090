@@ -12,17 +12,20 @@ All credit and thanks to the original author.
 >  RTX5090 : 400W maximum
 <img width="234" height="333" alt="2026-08-19 11_06_34-System Resources v0 2" src="https://github.com/user-attachments/assets/0eefa086-2e5d-4369-b7c7-902444d817ea" />
 
------
+### Second release - NVFP4 optimized with Sol
+> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 200000 --lm-head-draft --vision  
+temp:0.8  
 
-> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
+ **low thinking** : around 170t/s (about 200t/sec with no power limit - 600 W)  
+[info] ninfer-serve: [req 12] done finish=stop_token prompt=222 gen=14577 cache=0 reuse=full_reset ttft=218ms prefill=1041.9tok/s decode=169.7tok/s wall=86.29s speculative=mtp 3.42tok/round (80.8%)  
 
-[info] ninfer-serve: [req 1] done finish=stop_token prompt=205 gen=59061 cache=0 reuse=full_reset ttft=304ms prefill=680.0tok/s decode=136.5tok/s wall=433.85s speculative=mtp 2.83tok/round (61.1%)
+ **medium thinking** : around 150t/s  
+[info] ninfer-serve: [req 11] done finish=stop_token prompt=192 gen=31333 cache=0 reuse=full_reset ttft=149ms prefill=1308.8tok/s decode=148.5tok/s wall=211.55s speculative=mtp 3.04tok/round (68.1%)  
 
------
+ **xhigh thinking** : around 140t/s  
+[info] ninfer-serve: [req 10] done finish=stop_token prompt=234 gen=69108 cache=0 reuse=full_reset ttft=298ms prefill=807.9tok/s decode=139.8tok/s wall=495.47s speculative=mtp 2.98tok/round (65.9%)  
 
-> ninfer-serve.exe models\qwen3_6_35b_a3b.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 4 --spec mtp  --default-max-tokens 132000
-
- [info] ninfer-serve: [req 3] done finish=stop_token prompt=175 gen=7664 cache=0 reuse=full_reset ttft=247ms prefill=725.9tok/s decode=586.1tok/s wall=13.38s speculative=mtp 4.04tok/round (76.0%)
+**100k tokens prefill** : 3727 tok/s average  
 
 -----
 
@@ -51,6 +54,20 @@ All credit and thanks to the original author.
 All retained routes pass numerical correctness and CUDA Graph replay checks.
 
 ----
+
+### First release
+
+> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
+
+[info] ninfer-serve: [req 1] done finish=stop_token prompt=205 gen=59061 cache=0 reuse=full_reset ttft=304ms prefill=680.0tok/s decode=136.5tok/s wall=433.85s speculative=mtp 2.83tok/round (61.1%)
+
+-----
+
+> ninfer-serve.exe models\qwen3_6_35b_a3b.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 4 --spec mtp  --default-max-tokens 132000
+
+ [info] ninfer-serve: [req 3] done finish=stop_token prompt=175 gen=7664 cache=0 reuse=full_reset ttft=247ms prefill=725.9tok/s decode=586.1tok/s wall=13.38s speculative=mtp 4.04tok/round (76.0%)
+
+ -----
 
 ## Original readme
 
