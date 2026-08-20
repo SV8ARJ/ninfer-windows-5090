@@ -482,6 +482,161 @@ Implementation and verification:
 - correctness cases now cover `T=96` and `T=97` directly;
 - `ninfer_linear_swiglu_nvfp4_test` passed the independent numerical and workspace checks.
 
+### 2026-08-20: Reject direct register-to-global TMA output stores
+
+**Status:** implemented as an isolated candidate, measured, rejected, and removed.
+
+The candidate removed the two consumer barriers and shared-memory BF16 output staging pass from the
+large-T NVFP4 TMA kernel. Each MMA lane instead converted its accumulator pairs to BF16 and issued
+direct 32-bit global stores. Arithmetic, epilogue evaluation, and BF16 rounding were unchanged, and
+`ninfer_linear_nvfp4_a4_test` passed all registered `T=1024` Linear geometries.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public Linear, 256 MiB L2 flush, 10 warmups, and
+50 measured launches:
+
+| Shape at T=1024 | Shared-memory vector staging | Direct BF16x2 stores | Change |
+|---|---:|---:|---:|
+| `[14336,5120]` attention projection | 154.176 us | 164.960 us | +7.0% |
+| `[5120,17408]` down projection | 198.688 us | 201.856 us | +1.6% |
+
+The accumulator ownership permits direct stores, but the narrower per-lane transactions are less
+effective than cooperatively reloading and issuing 16-byte vector stores from shared memory. The
+existing staged epilogue remains production code.
+
+### 2026-08-20: Retain three-stage large-T TMA pipeline
+
+**Status:** S2 measured and rejected; S4 infeasible; production S3 retained.
+
+The large-T `M256N128K128` NVFP4 TMA Linear schedule was swept around its production three-stage
+pipeline. `BlockK=128` was held fixed because it is coupled to the 64-byte code TMA boxes, packed
+scale layout, and two-K64 MMA stage contract.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public Linear, 256 MiB L2 flush, 10 warmups, and
+50 measured launches:
+
+| Shape at T=1024 | Production S3 | Candidate S2 | Change |
+|---|---:|---:|---:|
+| `[14336,5120]` attention projection | 154.176 us | 156.736 us | +1.7% |
+| `[5120,17408]` down projection | 198.688 us | 201.856 us | +1.6% |
+
+S2 passed `ninfer_linear_nvfp4_a4_test`, but reduced TMA/MMA overlap enough to outweigh its smaller
+shared-memory footprint. S4 requires `217,088 B` of dynamic shared memory and CUDA rejects
+`cudaFuncSetAttribute` with `cudaErrorInvalidValue` on RTX 5090. The existing S3 schedule remains
+the strongest viable pipeline depth.
+
+### 2026-08-20: Profile large-T TMA Linear bottleneck
+
+**Status:** attribution complete; no production change.
+
+Nsight Compute 2025.4.1 captured exactly one cold-cache public NVFP4 A4 Linear call after warmup for
+the attention and down-projection geometries at `T=1024`. Each call contains the expected activation
+quantization kernel followed by the production `M256N128K128S3` TMA contraction.
+
+Key contraction counters on RTX 5090, CUDA 13.1, Release `sm_120a`:
+
+| Metric | `[14336,5120]` attention | `[5120,17408]` down |
+|---|---:|---:|
+| L2 throughput | 79.88% | 78.39% |
+| DRAM throughput | 18.83% | 17.37% |
+| Compute throughput | 60.80% | 60.44% |
+| L2 hit rate | 88.73% | 90.82% |
+| Achieved occupancy | 18.62% | 18.71% |
+| Registers per thread | 168 | 168 |
+| Dynamic shared memory per CTA | 89.22 KiB | 89.22 KiB |
+| Eligible warp in any scheduler cycle | 12.98% | 12.29% |
+
+The contraction is limited primarily by L2-side traffic and low one-CTA-per-SM occupancy, not DRAM
+bandwidth or register spilling. At `T=1024`, four independent `M256` token CTAs consume the same
+weight code and scale tiles for each output-row block, producing high L2 hit rate but nearly 80% L2
+throughput. The next candidate should use a four-CTA cluster and TMA multicast for weight codes and
+scales while each CTA continues loading its private activation tile. This directly targets the
+measured repeated L2 traffic without changing the mathematical operation or packed artifact.
+
+Reports:
+
+- `profiles/ncu/nvfp4_linear_tma_attn_t1024.ncu-rep`
+- `profiles/ncu/nvfp4_linear_tma_down_t1024.ncu-rep`
+
+### 2026-08-20: Cluster T=1024 pure Linear token tiles
+
+**Status:** completed and retained.
+
+CUDA 13.1 does not expose TMA multicast for `sm_120a`; the instruction is architecture-qualified
+for `sm_90a`, `sm_100/103`, and `sm_110`. A distributed-shared-memory fan-out was therefore not
+used. The prerequisite cluster-placement experiment was independently valuable: the four `M256`
+token CTAs in a `T=1024` pure Linear call using the production S3 schedule are now launched as a
+`1x4x1` cluster while each CTA keeps its existing private TMA pipeline and arithmetic. The MLP
+gate/up Linear geometry retains its separately qualified S2 launch.
+
+Same-session RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public Linear, 256 MiB L2 flush,
+10 warmups, and 50 measured launches:
+
+| Shape at T=1024 | Ordinary launch | Four-CTA cluster | Change |
+|---|---:|---:|---:|
+| `[14336,5120]` attention projection | 152.896 us | 146.688 us | -4.1% |
+| `[5120,17408]` down projection | 196.608 us | 192.160 us | -2.3% |
+
+A fresh 20-warmup, 100-sample same-session A/B retest confirmed the optimization: attention
+projection improved from `157.056 us` to `148.800 us` (-5.3%), and down projection improved from
+`204.832 us` to `194.592 us` (-5.0%).
+
+The clustered attention profile reduced profiled contraction duration from `184.58 us` to
+`174.85 us`. L2 utilization increased from 79.88% to 84.33% while the hit rate remained 88.73%, so
+the win is improved cluster scheduling/locality rather than eliminated traffic. Adding DSM
+synchronization on top of the now-more-saturated L2 path was not justified without native
+multicast.
+
+Qualification:
+
+- `ninfer_linear_nvfp4_a4_test` passes every registered Linear geometry;
+- every registered `T=1024` case captures its production launch into a CUDA Graph and executes two
+  consecutive replays before numerical comparison, including the clustered S3 routes;
+- clustering is owned by the pure Linear launcher only; attention/GDN split-output, LinearAdd, and
+  fused SwiGLU launches retain their separately qualified schedules.
+
+Profile: `profiles/ncu/nvfp4_linear_cluster_attn_t1024.ncu-rep`.
+
+### 2026-08-20: Cluster T=1024 LinearAdd token tiles
+
+**Status:** completed and retained.
+
+The qualified `1x4x1` cluster placement was extended from pure Linear to the two supported NVFP4
+LinearAdd residual geometries. LinearAdd uses the same S3 `M256N128K128` TMA contraction with a
+residual-read/add epilogue, so the four `T=1024` token tiles now use the clustered launch while
+shorter and non-M256 routes remain unchanged.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public LinearAdd, 256 MiB L2 flush, 20 warmups,
+and 100 measured launches:
+
+| Shape at T=1024 | Ordinary launch | Four-CTA cluster | Change |
+|---|---:|---:|---:|
+| `[5120,6144]` residual projection | 85.216 us | 83.168 us | -2.4% |
+| `[5120,17408]` MLP down projection | 212.000 us | 204.896 us | -3.4% |
+
+`ninfer_linear_add_nvfp4_test` passes the independent FP64 reduction oracle, guard/workspace
+checks, CUDA Graph capture, and two consecutive replays for both `T=1024` geometries.
+
+### 2026-08-20: Cluster T=1024 split-output projections
+
+**Status:** completed and retained.
+
+The qualified `1x4x1` cluster placement was extended to the NVFP4 AttentionInputProj and
+GdnInputProj semantic Ops. Both use the S3 `M256N128K128` TMA contraction but route each 128-row
+output tile into the appropriate split tensor. Clustering changes only CTA placement; output
+ownership and all numerical semantics remain unchanged.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public Ops, 256 MiB L2 flush, 20 warmups, and
+100 measured launches:
+
+| Op at T=1024 | Ordinary launch | Four-CTA cluster | Change |
+|---|---:|---:|---:|
+| AttentionInputProj | 155.680 us | 147.616 us | -5.2% |
+| GdnInputProj | 179.520 us | 161.024 us | -10.3% |
+
+`ninfer_attn_input_proj_test` and `ninfer_gdn_input_proj_test` pass their independent numerical
+criteria, guard/input-preservation checks, CUDA Graph capture, and two consecutive replays for the
+clustered `T=1024` routes.
+
 ## Optimization Map
 
 ### Activation quantization

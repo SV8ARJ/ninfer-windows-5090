@@ -630,6 +630,36 @@ Run the work in this order:
     them;
 12. consider persistent-layout changes only as a final, evidence-driven redesign.
 
+The first output-staging experiment is complete: replacing shared-memory vector staging with direct
+per-lane BF16x2 global stores regressed representative `T=1024` Linear shapes by 1.6% to 7.0%. That
+candidate was removed; subsequent epilogue work must preserve wide/coalesced global transactions.
+
+The large-T TMA stage-count sweep is also complete. S2 regressed representative `T=1024` Linear
+shapes by 1.6% to 1.7%, while S4 exceeds the RTX 5090 per-block dynamic shared-memory limit. The
+production S3 pipeline remains selected; `BlockK=128` is inseparable from the current TMA box and
+packed-scale contract rather than an independent schedule knob.
+
+Current-source Nsight Compute attribution identifies the next architectural candidate. Both
+representative `T=1024` TMA contractions run at roughly 79% L2 throughput but only 17% to 19% DRAM
+throughput, with 89% to 91% L2 hit rate. Four token CTAs independently fetch each shared weight tile.
+Prototype a four-CTA cluster that multicasts weight codes and scales while preserving private
+activation TMA loads; qualify it against complete public Linear latency before extending it to fused
+Ops.
+
+That experiment retained the supported part of the design. Native TMA multicast is unavailable on
+`sm_120a`, but placing the four `T=1024` token CTAs of the S3 pure Linear routes in a `1x4x1`
+cluster improves complete latency by 2.3% to 4.1% without changing the private TMA pipelines. The
+clustered launch is qualified under repeated CUDA Graph replay. Profile counters show higher L2
+utilization rather than lower traffic, so a DSM software fan-out is not the next step.
+
+The same cluster placement is retained for the two S3 NVFP4 LinearAdd routes at `T=1024`. It
+improves complete residual projection latency by 2.4% and MLP down-projection latency by 3.4%, with
+independent numerical qualification and repeated CUDA Graph replay.
+
+Cluster placement is also retained for the S3 AttentionInputProj and GdnInputProj split-output
+routes at `T=1024`. Complete public-Op latency improves by 5.2% and 10.3%, respectively, with
+independent numerical qualification and repeated CUDA Graph replay.
+
 ## 10. Initial Success Criteria
 
 The first optimization campaign is complete when it delivers all of the following:

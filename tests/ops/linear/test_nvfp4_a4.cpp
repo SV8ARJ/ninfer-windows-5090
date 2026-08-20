@@ -13,22 +13,22 @@ int run_nvfp4_a4() {
     constexpr std::array attn_invocations{
         Invocation{4, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{17, CallForm::Policy, ops::LinearPolicy::AllowA4},
-        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4},
+        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
     };
     constexpr std::array gdn_invocations{
         Invocation{1, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{2, CallForm::Policy, ops::LinearPolicy::AllowA4},
-        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4},
+        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
     };
     constexpr std::array gate_up_invocations{
         Invocation{5, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{17, CallForm::Policy, ops::LinearPolicy::AllowA4},
-        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4},
+        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
     };
     constexpr std::array residual_invocations{
         Invocation{8, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{17, CallForm::Policy, ops::LinearPolicy::AllowA4},
-        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4},
+        Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
     };
     int failures = 0;
     failures += run_shape("NVFP4_A4", ActivationCompute::A4, make_nvfp4_weight,
