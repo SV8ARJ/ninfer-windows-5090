@@ -38,6 +38,7 @@ tools/freq_corpus/fixtures/*
 
 # Windows port artifacts
 bin/
+distribution/
 
 # Editor / OS
 .vscode/
