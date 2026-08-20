@@ -321,11 +321,11 @@ are chunked into 32-token pieces.
 |---:|---|
 | 1 | fused A16 decode |
 | 2..4 | fused A16 small-T |
-| 5..48 | fused W4A4 |
+| 5..96 | fused W4A4 |
 | positive multiples of 256 from 256 | fused W4A4 TMA |
 | other A4 values | W4A4 linear followed by separate `silu_mul` |
 
-This means non-M256 values above `T=48` do not use fused TMA and may materialize the large gate/up
+This means non-M256 values above `T=96` do not use fused TMA and may materialize the large gate/up
 projection.
 
 ## Optimization Progress
@@ -367,9 +367,120 @@ Verification:
 - the test verifies workspace scope restoration and exact capacity/high-water agreement;
 - a focused Release build of the benchmark and correctness target completed successfully.
 
-Remaining gap: non-M256 values from `T=49` upward still use materialized Linear plus `silu_mul`.
+Remaining gap: non-M256 values from `T=97` upward still use materialized Linear plus `silu_mul`.
 The next route-level experiment should determine whether tail-capable fused TMA or an extended
 cp.async fused schedule wins for those values.
+
+### 2026-08-20: Reject tcgen05/TMEM mainloop for RTX 5090
+
+**Status:** feasibility checked and rejected before implementation.
+
+The planned SM120 `tcgen05`/TMEM prototype cannot run on RTX 5090. CUDA 13.1 exposes Tensor Memory
+and `tcgen05` only for the `sm_100`, `sm_103`, and `sm_110` architecture families. The installed
+CCCL wrappers explicitly omit `sm_120`, and CUDA 13.1 `ptxas` rejects `tcgen05.alloc` and
+`.cta_group::1` when targeting `sm_120a` while accepting the same probe for `sm_100a`.
+
+RTX 5090 does support the existing warp-level block-scaled instruction:
+
+```text
+mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.
+m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3
+```
+
+Therefore no candidate kernel or production route was added. Large-T work on RTX 5090 must improve
+the supported `mma.sync` mainloop, its TMA pipeline, or surrounding vertical dataflow. The next
+architectural experiment is the quantized MLP handoff, which can remove the BF16 SwiGLU output
+write/read and standalone down-projection quantization launch.
+
+### 2026-08-20: Reject inline quantized MLP handoff
+
+**Status:** implemented as an isolated candidate, measured, rejected, and removed.
+
+The candidate changed the fused M256 SwiGLU TMA epilogue to preserve the semantic BF16 rounding in
+shared memory and quantize those exact values directly into down-projection E2M1 codes and E4M3
+scales. The existing down LinearAdd contraction then consumed those planes without writing or
+rereading a global `[17408,T]` BF16 activation and without launching its standalone quantizer.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache complete post-mixer measurement with 256 MiB L2
+flush, 10 warmups, and 50 measured launches:
+
+| T | Existing two-Op path | Quantized handoff | Change |
+|---:|---:|---:|---:|
+| 256 | 256.864 us | 252.992 us | -1.5% |
+| 512 | 329.824 us | 327.776 us | -0.6% |
+| 768 | 495.712 us | 487.520 us | -1.7% |
+| 1024 | 629.888 us | 637.056 us | +1.1% |
+
+The candidate did not satisfy the primary `T=1024` acceptance criterion. Inline K16 quantization
+extends every gate/up CTA's epilogue and residency, offsetting the removed BF16 traffic and causing a
+full-prefill regression. The candidate kernel, composite route, workspace changes, and temporary
+benchmark were removed. No production handoff remains.
+
+The result narrows future work: dataflow fusion should not serialize down-input quantization onto the
+gate/up CTA critical path. A future attempt would need an overlapped producer/consumer design or a
+faster standalone quantizer rather than this inline epilogue architecture.
+
+### 2026-08-20: Reject GDN Snapshot post-kernel tile retuning
+
+**Status:** measured, rejected, and reverted.
+
+The current NVFP4 materialized Snapshot post kernel assigns each warp an 8-token tile. Every tile
+loads three preceding projected columns as convolution history. A 32-token candidate reduced this
+duplicated projected-plane traffic by about 75% while preserving the width-4 convolution and state
+publication formula.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, complete public NVFP4 A4 Snapshot at `T=1024`, `B=1`, 256
+MiB L2 flush, 10 warmups, and 50 measured launches:
+
+| Execution | Existing T8 tile | Candidate T32 tile | Change |
+|---|---:|---:|---:|
+| CUDA Graph, cold | 239.392 us | 241.760 us | +1.0% |
+| CUDA Graph, warm | 245.088 us | 246.560 us | +0.6% |
+| eager, cold | 242.752 us | 244.832 us | +0.9% |
+| eager, warm | 251.328 us | 254.080 us | +1.1% |
+
+The independent Snapshot correctness test passed, but the larger per-warp serial tile reduced useful
+latency hiding enough to outweigh the lower read duplication. The production 8-token tile was
+restored.
+
+The investigation also established that normal Engine prefill does not invoke the `T=1024`
+Snapshot Op: it executes GDN projection followed by ordinary `causal_conv1d_silu`. Record admits
+only `T=2..16`. A specialized Snapshot seam-buffer fusion could remove approximately 46.7 MiB of
+intermediate traffic, but would optimize a public benchmark route rather than the main prefill path.
+An impactful GDN fusion must instead target the actual prefill composition and solve cross-CTA
+width-4 token dependencies there.
+
+### 2026-08-20: Extend fused cp.async SwiGLU through T=96
+
+**Status:** completed and retained.
+
+The existing fused W4A4 cp.async LinearSwiGLU route previously ended at `T=48`. The materialized
+Linear plus `silu_mul` route was compared against the fused route across the final-prefill tail
+domain. The fused kernel remains faster through `T=96`; at `T=97`, its 48-token block geometry
+requires a third token tile and latency jumps, while the materialized Linear route switches to a
+much stronger schedule.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public LinearSwiGLU, 256 MiB L2 flush, 10 warmups,
+and 50 measured launches at the principal points:
+
+| T | Materialized baseline | Retained fused route | Change |
+|---:|---:|---:|---:|
+| 49 | 144.480 us | 136.288 us | -5.7% |
+| 64 | 144.512 us | 138.336 us | -4.3% |
+| 80 | 171.072 us | 138.336 us | -19.1% |
+| 95 | 173.152 us | 140.384 us | -18.9% |
+| 96 | 173.216 us | 140.320 us | -19.0% |
+
+At the rejected side of the boundary, the materialized route measured `83.040 us` at `T=97` and
+`85.120 us` at `T=128`, so production deliberately returns to materialization from `T=97` except
+for the separately qualified M256 fused TMA points.
+
+Implementation and verification:
+
+- `src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp` selects fused W4A4 for `T=5..96` and
+  plans workspace consistently across intervals;
+- correctness cases now cover `T=96` and `T=97` directly;
+- `ninfer_linear_swiglu_nvfp4_test` passed the independent numerical and workspace checks.
 
 ## Optimization Map
 
