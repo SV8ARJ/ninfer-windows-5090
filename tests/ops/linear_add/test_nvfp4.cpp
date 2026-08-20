@@ -123,7 +123,7 @@ int run_shape(std::int32_t n, std::int32_t k, std::uint32_t seed) {
         const std::size_t capacity = ops::linear_add_workspace_capacity_bytes(
             QType::NVFP4, n, k, invocation.policy, invocation.tokens, invocation.tokens);
         WorkspaceArena workspace(std::max<std::size_t>(capacity, 256));
-        if (invocation.tokens == 1024) {
+        if (invocation.tokens == 1 || invocation.tokens == 1024) {
             cudaStream_t stream  = nullptr;
             cudaGraph_t graph    = nullptr;
             cudaGraphExec_t exec = nullptr;

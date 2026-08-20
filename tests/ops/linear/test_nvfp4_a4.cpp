@@ -26,6 +26,7 @@ int run_nvfp4_a4() {
         Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
     };
     constexpr std::array residual_invocations{
+        Invocation{1, CallForm::Policy, ops::LinearPolicy::AllowA4, true},
         Invocation{8, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{17, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4, true},

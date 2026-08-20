@@ -665,6 +665,16 @@ public-Op latency improves by 6.6%, 8.7%, and 7.5%, respectively. `T=256` remain
 one-CTA launch; all clustered points pass independent numerical qualification and repeated CUDA
 Graph replay.
 
+The compact concurrent/MTP verification sweep found no material NVFP4 schedule cliff. An eight-chain
+specialization for the long-K `T=1` decode GEMV produced only 0.2% to 0.6% on final rerun with
+unstable tail latency and was removed. End-to-end concurrent/MTP measurement remains pending a local
+registered `.ninfer` artifact; Qwen3.6 proposal-model W8 leaves are outside this NVFP4 retune.
+
+End-to-end validation subsequently ran on the supplied registered Qwen3.8 NVFP4 artifact. Disabling
+only the retained cluster placements reduced `pp1024` throughput from 7574.0 to 7484.9 tok/s, so the
+cluster package delivers a measured 1.19% public Engine prefill improvement. Ordinary decode and
+MTP3 operate below the clustering frontier and therefore carry no claimed improvement.
+
 ## 10. Initial Success Criteria
 
 The first optimization campaign is complete when it delivers all of the following:

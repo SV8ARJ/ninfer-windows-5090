@@ -658,6 +658,60 @@ RTX 5090, CUDA 13.1, Release `sm_120a`, cold-cache public LinearSwiGLU, 256 MiB 
 `ninfer_linear_swiglu_nvfp4_test` passes the independent numerical oracle, workspace/guard checks,
 CUDA Graph capture, and two consecutive replays for every clustered point.
 
+### 2026-08-20: Reject eight-chain long-K decode GEMV
+
+**Status:** implemented, measured, rejected, and removed.
+
+The concurrent decode and MTP-verification domain was surveyed at the exact compact widths used by
+the product. Attention projection remained near `34 us` from `T=8..32`, fused SwiGLU near `73 us`
+from `T=5..32`, and down LinearAdd near `55 us` from `T=8..24`; no unexplained verification-range
+schedule cliff was found. Qwen3.6 MTP proposal leaves are W8 rather than NVFP4, so they were not
+retuned as part of this NVFP4 campaign.
+
+The only candidate was a target-specific increase from four to eight accumulator chains for the
+long-K `[5120,17408]` A16 decode GEMV at `T=1`. It preserves represented inputs, scale decode,
+arithmetic semantics, and output layout. An initial 100-sample comparison suggested 1.9% to 2.1%,
+but the restored final candidate measured only `35.712 us` versus `35.936 us` for pure Linear
+(-0.6%) and `37.920 us` versus `37.984 us` for LinearAdd (-0.2%), with unstable LinearAdd tail
+latency. The specialization was removed.
+
+The added `T=1` long-K pure Linear and LinearAdd CUDA Graph capture/two-replay checks remain and pass
+with the production four-chain schedule. Target-level concurrent/MTP measurement could not run
+because no registered `.ninfer` artifact exists under the declared local `out/` or `bin/models/`
+paths.
+
+### 2026-08-20: End-to-end Qwen3.8 NVFP4 qualification
+
+**Status:** completed on the supplied registered artifact.
+
+The public Engine benchmark loaded
+`L:\Temp\ninfer\bin\models\qwen3_8_27b_nvfp4.ninfer` and compared the retained cluster-placement
+routes against a temporary build with only clustering disabled. All other retained NVFP4 changes
+were identical between the two builds.
+
+RTX 5090, CUDA 13.1, Release `sm_120a`, BF16 KV, public Engine, `pp1024`, prefill chunk 1024,
+2 warmups, and 10 measured repetitions:
+
+| Build | Prefill throughput |
+|---|---:|
+| Ordinary TMA launches | 7484.9 +/- 79.0 tok/s |
+| Retained clustered launches | 7574.0 +/- 115.1 tok/s |
+| Change | +1.19% |
+
+The same artifact measured ordinary CUDA Graph decode at approximately `65.3 tok/s`; clustering is
+not active at the `T=1` decode width, so no decode improvement is claimed. MTP3 with the optimized
+proposal head measured approximately `112 tok/s` at 43.4% acceptance, but its compact verification
+widths also do not activate the large-T clusters; observed A/B variation there is unrelated run
+variance and no MTP gain is claimed.
+
+Reports:
+
+- `profiles/bench/nvfp4_engine_pp1024_baseline_r10.csv`
+- `profiles/bench/nvfp4_engine_pp1024_optimized_r10.csv`
+- `profiles/bench/nvfp4_engine_cluster_optimized.csv`
+- `profiles/bench/nvfp4_engine_mtp3_optimized.csv`
+- `profiles/bench/nvfp4_engine_mtp3_baseline.csv`
+
 ## Optimization Map
 
 ### Activation quantization
