@@ -44,6 +44,8 @@ Runtime and Op references:
 - [Op admission, contracts, ownership, qualification, and performance rules](maintainer/op-development.md)
 - [ReplaySSM GDN technical reference](maintainer/replayssm-gdn.md)
 - [Linear benchmark contract and registered suites](maintainer/linear-benchmark.md)
+- [NVFP4 processing and optimization reference](../nvfp4.md)
+- [NVFP4 RTX 5090 optimization plan](../nvfp4_optimization.md)
 
 Artifact and model references:
 
