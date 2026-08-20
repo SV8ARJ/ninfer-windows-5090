@@ -1,13 +1,56 @@
-# NInfer
+# NInfer - Windows - 5090
 
 > Selected checkpoints. Maximum single-GPU inference performance.
 
-## This is branch "Windows port"
+## Select branch "Windows port"
 Visual Studio 2022 (MSVC) and CUDA 13.1 targeting sm_120a (RTX 5090)
 
 Made possible with the help of Deepseek. Sharing in the hope that someone finds it useful.
 Use at your own risk.
 All credit and thanks to the original author.
+
+>  RTX5090 : 400W maximum
+<img width="234" height="333" alt="2026-08-19 11_06_34-System Resources v0 2" src="https://github.com/user-attachments/assets/0eefa086-2e5d-4369-b7c7-902444d817ea" />
+
+-----
+
+> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
+
+[info] ninfer-serve: [req 1] done finish=stop_token prompt=205 gen=59061 cache=0 reuse=full_reset ttft=304ms prefill=680.0tok/s decode=136.5tok/s wall=433.85s speculative=mtp 2.83tok/round (61.1%)
+
+-----
+
+> ninfer-serve.exe models\qwen3_6_35b_a3b.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 4 --spec mtp  --default-max-tokens 132000
+
+ [info] ninfer-serve: [req 3] done finish=stop_token prompt=175 gen=7664 cache=0 reuse=full_reset ttft=247ms prefill=725.9tok/s decode=586.1tok/s wall=13.38s speculative=mtp 4.04tok/round (76.0%)
+
+-----
+
+# NVFP4 Optimization - Sunbathing under the GPT Sol
+
+## Optimizations implemented
+
+- Clustered large-T TMA launches:
+  - Pure Linear: **5.0-5.3% faster** at `T=1024`.
+  - LinearAdd: **2.4-3.4% faster** at `T=1024`.
+  - AttentionInputProj: **5.2% faster** at `T=1024`.
+  - GdnInputProj: **10.3% faster** at `T=1024`.
+  - Fused SwiGLU: **6.6-8.7% faster** at `T=512/768/1024`.
+- Fused SwiGLU cp.async route extended through `T=96`: **4.3-19.1% faster**.
+- Fused SwiGLU TMA at `T=256/512/768`: **8.3-24.4% faster**.
+- End-to-end Qwen3.8 NVFP4 prefill improvement: **1.19%** at `T=1024`.
+
+## Rejected
+
+- Direct register-to-global output stores: **1.6-7.0% slower**.
+- Two-stage TMA pipeline: **1.6-1.7% slower**.
+- Four-stage TMA pipeline: exceeds RTX 5090 shared-memory limits.
+- `tcgen05`/TMEM: unsupported on `sm_120a`.
+- Inline quantized MLP handoff and eight-chain decode GEMV: no stable benefit.
+
+All retained routes pass numerical correctness and CUDA Graph replay checks.
+
+----
 
 ## Original readme
 
@@ -109,15 +152,18 @@ and per-fixture results.
 Capability scores were measured through NInfer's OpenAI-compatible serving route with thinking
 enabled, MTP=3, and EvalScope 1.9.0 (0-shot, rule scoring, one sample per problem):
 
-| Model profile | AIME 2025 | AIME 2026 | GPQA-Diamond |
-|---|---:|---:|---:|
-| [Qwen3.6-27B groupwise-int](model-cards/Qwen3.6-27B-NInfer/README.md) | 86.67% | 93.33% | 86.87% |
-| [Qwen3.6-27B NVFP4](model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md) | 93.33% | 93.33% | 84.34% |
-| [Qwen3.6-35B-A3B groupwise-int](model-cards/Qwen3.6-35B-A3B-NInfer/README.md) | 90.00% | 90.00% | 85.35% |
-| [Qwen3.8-27B NVFP4](model-cards/Qwen3.8-27B-nvfp4-NInfer/README.md) | — | — | 88.38% |
+| Model profile | AIME 2025 | AIME 2026 | GPQA-Diamond | ERQA | RealWorldQA |
+|---|---:|---:|---:|---:|---:|
+| [Qwen3.6-27B groupwise-int](model-cards/Qwen3.6-27B-NInfer/README.md) | 86.67% | 93.33% | 86.87% | — | — |
+| [Qwen3.6-27B NVFP4](model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md) | 93.33% | 93.33% | 84.34% | — | — |
+| [Qwen3.6-35B-A3B groupwise-int](model-cards/Qwen3.6-35B-A3B-NInfer/README.md) | 90.00% | 90.00% | 85.35% | — | — |
+| [Qwen3.8-27B NVFP4](model-cards/Qwen3.8-27B-nvfp4-NInfer/README.md) | 96.67% | 96.67% | 90.40% | 66.25% | 83.53% |
 
-The Qwen3.8-27B groupwise-int profile has not yet been added to this published evaluation campaign;
-the Qwen3.8-27B NVFP4 profile currently reports GPQA-Diamond only.
+The Qwen3.8-27B groupwise-int profile has not yet been added to this published evaluation campaign.
+The Qwen3.6 rows used temperature 0.6 and presence penalty 1.0; the Qwen3.8-27B NVFP4 row used
+temperature 1.0 and presence penalty 0.0. The multimodal columns (ERQA and RealWorldQA) ran with
+`--vision` at a 81,920-token context limit; the text columns used a 252,928-token limit for
+Qwen3.8-27B NVFP4 and a 262,144-token limit for the Qwen3.6 rows.
 
 These are single-sample results under that NInfer evaluation profile, not pass@k. See the model
 cards and [full performance document](docs/performance.md) for correct/total counts and evaluation
