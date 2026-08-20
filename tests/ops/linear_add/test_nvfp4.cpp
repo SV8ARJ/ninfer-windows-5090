@@ -123,8 +123,33 @@ int run_shape(std::int32_t n, std::int32_t k, std::uint32_t seed) {
         const std::size_t capacity = ops::linear_add_workspace_capacity_bytes(
             QType::NVFP4, n, k, invocation.policy, invocation.tokens, invocation.tokens);
         WorkspaceArena workspace(std::max<std::size_t>(capacity, 256));
-        ops::linear_add(x, weight, residual, invocation.policy, workspace, nullptr);
-        cuda_check(cudaDeviceSynchronize(), "synchronize NVFP4 linear_add");
+        if (invocation.tokens == 1024) {
+            cudaStream_t stream  = nullptr;
+            cudaGraph_t graph    = nullptr;
+            cudaGraphExec_t exec = nullptr;
+            cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                       "create NVFP4 linear_add graph stream");
+            cuda_check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+                       "begin NVFP4 linear_add graph capture");
+            ops::linear_add(x, weight, residual, invocation.policy, workspace, stream);
+            cuda_check(cudaStreamEndCapture(stream, &graph),
+                       "end NVFP4 linear_add graph capture");
+            cuda_check(cudaGraphInstantiate(&exec, graph, 0),
+                       "instantiate NVFP4 linear_add graph");
+            cuda_check(cudaGraphLaunch(exec, stream), "launch NVFP4 linear_add graph first replay");
+            cuda_check(cudaMemcpyAsync(output.data(), initial_residual.data(), output.bytes(),
+                                       cudaMemcpyHostToDevice, stream),
+                       "reset NVFP4 linear_add residual between graph replays");
+            cuda_check(cudaGraphLaunch(exec, stream),
+                       "launch NVFP4 linear_add graph second replay");
+            cuda_check(cudaStreamSynchronize(stream), "synchronize NVFP4 linear_add graph replay");
+            cuda_check(cudaGraphExecDestroy(exec), "destroy NVFP4 linear_add graph executable");
+            cuda_check(cudaGraphDestroy(graph), "destroy NVFP4 linear_add graph");
+            cuda_check(cudaStreamDestroy(stream), "destroy NVFP4 linear_add graph stream");
+        } else {
+            ops::linear_add(x, weight, residual, invocation.policy, workspace, nullptr);
+            cuda_check(cudaDeviceSynchronize(), "synchronize NVFP4 linear_add");
+        }
 
         const bool a4           = invocation.policy == ops::LinearPolicy::AllowA4;
         const std::string label = "NVFP4 linear_add [" + std::to_string(n) + "," +

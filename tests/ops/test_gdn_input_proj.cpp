@@ -173,8 +173,33 @@ int run_nvfp4_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearP
     const std::size_t capacity = ops::gdn_input_proj_workspace_capacity_bytes(
         QType::NVFP4, kRows, kHidden, policy, tokens, tokens);
     WorkspaceArena workspace(std::max<std::size_t>(capacity, 256));
-    ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, policy, workspace, nullptr);
-    cuda_synchronize();
+    if (tokens == 1024 && policy == ops::LinearPolicy::AllowA4) {
+        cudaStream_t stream  = nullptr;
+        cudaGraph_t graph    = nullptr;
+        cudaGraphExec_t exec = nullptr;
+        cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                   "create NVFP4 GDN projection graph stream");
+        cuda_check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+                   "begin NVFP4 GDN projection graph capture");
+        ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, policy, workspace, stream);
+        cuda_check(cudaStreamEndCapture(stream, &graph),
+                   "end NVFP4 GDN projection graph capture");
+        cuda_check(cudaGraphInstantiate(&exec, graph, 0),
+                   "instantiate NVFP4 GDN projection graph");
+        cuda_check(cudaGraphLaunch(exec, stream),
+                   "launch NVFP4 GDN projection graph first replay");
+        cuda_check(cudaGraphLaunch(exec, stream),
+                   "launch NVFP4 GDN projection graph second replay");
+        cuda_check(cudaStreamSynchronize(stream),
+                   "synchronize NVFP4 GDN projection graph replay");
+        cuda_check(cudaGraphExecDestroy(exec),
+                   "destroy NVFP4 GDN projection graph executable");
+        cuda_check(cudaGraphDestroy(graph), "destroy NVFP4 GDN projection graph");
+        cuda_check(cudaStreamDestroy(stream), "destroy NVFP4 GDN projection graph stream");
+    } else {
+        ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, policy, workspace, nullptr);
+        cuda_synchronize();
+    }
 
     const bool a4                       = policy == ops::LinearPolicy::AllowA4;
     const ReductionCriterion& criterion = a4 ? kGdnInputProjA4Tolerance : kGdnInputProjA16Tolerance;

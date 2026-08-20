@@ -266,8 +266,33 @@ int run_nvfp4_target_case(DevicePackedWeight& parent, std::int32_t tokens,
     const std::size_t capacity = ops::attn_input_proj_workspace_capacity_bytes(
         QType::NVFP4, 14336, kHidden, policy, tokens, tokens);
     DeviceArena workspace(std::max<std::size_t>(capacity, 256));
-    ops::attn_input_proj(x, parent.view(), q, g, k, v, policy, workspace, nullptr);
-    cuda_synchronize();
+    if (tokens == 1024 && policy == ops::LinearPolicy::AllowA4) {
+        cudaStream_t stream  = nullptr;
+        cudaGraph_t graph    = nullptr;
+        cudaGraphExec_t exec = nullptr;
+        cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                   "create NVFP4 attention projection graph stream");
+        cuda_check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+                   "begin NVFP4 attention projection graph capture");
+        ops::attn_input_proj(x, parent.view(), q, g, k, v, policy, workspace, stream);
+        cuda_check(cudaStreamEndCapture(stream, &graph),
+                   "end NVFP4 attention projection graph capture");
+        cuda_check(cudaGraphInstantiate(&exec, graph, 0),
+                   "instantiate NVFP4 attention projection graph");
+        cuda_check(cudaGraphLaunch(exec, stream),
+                   "launch NVFP4 attention projection graph first replay");
+        cuda_check(cudaGraphLaunch(exec, stream),
+                   "launch NVFP4 attention projection graph second replay");
+        cuda_check(cudaStreamSynchronize(stream),
+                   "synchronize NVFP4 attention projection graph replay");
+        cuda_check(cudaGraphExecDestroy(exec),
+                   "destroy NVFP4 attention projection graph executable");
+        cuda_check(cudaGraphDestroy(graph), "destroy NVFP4 attention projection graph");
+        cuda_check(cudaStreamDestroy(stream), "destroy NVFP4 attention projection graph stream");
+    } else {
+        ops::attn_input_proj(x, parent.view(), q, g, k, v, policy, workspace, nullptr);
+        cuda_synchronize();
+    }
 
     constexpr std::int32_t kKeyBegin   = kQRows;
     constexpr std::int32_t kGateBegin  = kKeyBegin + kKvRows;

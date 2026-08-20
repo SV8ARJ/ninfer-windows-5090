@@ -60,7 +60,7 @@ template <class Geometry, class Schedule, class Epilogue, class Output>
 void launch_tma(const std::uint8_t* activation_codes, const std::uint8_t* activation_scales,
                 const std::uint8_t* weight_codes, const std::uint8_t* weight_scales,
                 std::int32_t tokens, float alpha, Epilogue epilogue, Output output,
-                cudaStream_t stream) {
+                cudaStream_t stream, bool cluster_token_tiles = false) {
     const Nvfp4W4a4TmaDescriptors descriptors =
         make_nvfp4_w4a4_tma_descriptors<Geometry, Schedule::kBlockM>(
             activation_codes, activation_scales, weight_codes, weight_scales, tokens);
@@ -78,12 +78,49 @@ void launch_tma(const std::uint8_t* activation_codes, const std::uint8_t* activa
     Nvfp4W4a4TmaDescriptorBytes descriptor_bytes{};
     static_assert(sizeof(descriptor_bytes) == sizeof(descriptors));
     std::memcpy(descriptor_bytes.maps, &descriptors, sizeof(descriptors));
-    nvfp4_w4a4_tma_kernel<Geometry, Schedule>
-        <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptor_bytes, alpha, epilogue,
-                                                             output);
+    if (cluster_token_tiles && tokens == 1024) {
+        cudaLaunchAttribute attribute{};
+        attribute.id               = cudaLaunchAttributeClusterDimension;
+        attribute.val.clusterDim.x = 1;
+        attribute.val.clusterDim.y = 4;
+        attribute.val.clusterDim.z = 1;
+        cudaLaunchConfig_t config{};
+        config.gridDim          = grid;
+        config.blockDim         = dim3(Schedule::kThreads);
+        config.dynamicSmemBytes = kSharedBytes;
+        config.stream           = stream;
+        config.attrs            = &attribute;
+        config.numAttrs         = 1;
+        CUDA_CHECK(cudaLaunchKernelEx(&config, nvfp4_w4a4_tma_kernel<Geometry, Schedule, Epilogue,
+                                                                         Output>,
+                                      descriptor_bytes, alpha, epilogue, output));
+    } else {
+        nvfp4_w4a4_tma_kernel<Geometry, Schedule>
+            <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptor_bytes, alpha, epilogue,
+                                                                 output);
+    }
 #else
-    nvfp4_w4a4_tma_kernel<Geometry, Schedule>
-        <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptors, alpha, epilogue, output);
+    if (cluster_token_tiles && tokens == 1024) {
+        cudaLaunchAttribute attribute{};
+        attribute.id               = cudaLaunchAttributeClusterDimension;
+        attribute.val.clusterDim.x = 1;
+        attribute.val.clusterDim.y = 4;
+        attribute.val.clusterDim.z = 1;
+        cudaLaunchConfig_t config{};
+        config.gridDim          = grid;
+        config.blockDim         = dim3(Schedule::kThreads);
+        config.dynamicSmemBytes = kSharedBytes;
+        config.stream           = stream;
+        config.attrs            = &attribute;
+        config.numAttrs         = 1;
+        CUDA_CHECK(cudaLaunchKernelEx(&config, nvfp4_w4a4_tma_kernel<Geometry, Schedule, Epilogue,
+                                                                         Output>,
+                                      descriptors, alpha, epilogue, output));
+    } else {
+        nvfp4_w4a4_tma_kernel<Geometry, Schedule>
+            <<<grid, Schedule::kThreads, kSharedBytes, stream>>>(descriptors, alpha, epilogue,
+                                                                 output);
+    }
 #endif
     CUDA_CHECK(cudaGetLastError());
 }
@@ -94,7 +131,8 @@ void launch_linear(const std::uint8_t* activation_codes, const std::uint8_t* act
                    __nv_bfloat16* output, std::int32_t tokens, float alpha, cudaStream_t stream) {
     launch_tma<Geometry, TmaM256N128>(activation_codes, activation_scales, weight_codes,
                                       weight_scales, tokens, alpha, Nvfp4IdentityEpilogue{},
-                                      Nvfp4ContiguousOutput{output, Geometry::kOutputRows}, stream);
+                                      Nvfp4ContiguousOutput{output, Geometry::kOutputRows}, stream,
+                                      true);
 }
 
 } // namespace
@@ -138,7 +176,7 @@ void launch_nvfp4_w4a4_tma_attention(const std::uint8_t* activation_codes,
                                      std::int32_t tokens, float alpha, cudaStream_t stream) {
     launch_tma<Nvfp4AttnInputGeometry, TmaM256N128>(
         activation_codes, activation_scales, weight_codes, weight_scales, tokens, alpha,
-        Nvfp4IdentityEpilogue{}, AttentionOutput{query, key, gate, value}, stream);
+        Nvfp4IdentityEpilogue{}, AttentionOutput{query, key, gate, value}, stream, true);
 }
 
 void launch_nvfp4_w4a4_tma_gdn(const std::uint8_t* activation_codes,
@@ -148,7 +186,7 @@ void launch_nvfp4_w4a4_tma_gdn(const std::uint8_t* activation_codes,
                                float alpha, cudaStream_t stream) {
     launch_tma<Nvfp4GdnInputGeometry, TmaM256N128>(
         activation_codes, activation_scales, weight_codes, weight_scales, tokens, alpha,
-        Nvfp4IdentityEpilogue{}, Nvfp4GdnInputOutput{qkv, z}, stream);
+        Nvfp4IdentityEpilogue{}, Nvfp4GdnInputOutput{qkv, z}, stream, true);
 }
 
 template <class Geometry>
@@ -159,7 +197,7 @@ void launch_linear_add(const std::uint8_t* activation_codes, const std::uint8_t*
     launch_tma<Geometry, TmaM256N128>(
         activation_codes, activation_scales, weight_codes, weight_scales, tokens, alpha,
         Nvfp4AddResidualEpilogue{residual, Geometry::kOutputRows},
-        Nvfp4ContiguousOutput{residual, Geometry::kOutputRows}, stream);
+        Nvfp4ContiguousOutput{residual, Geometry::kOutputRows}, stream, true);
 }
 
 void launch_nvfp4_w4a4_tma_linear_add(Nvfp4Problem problem, const std::uint8_t* activation_codes,
