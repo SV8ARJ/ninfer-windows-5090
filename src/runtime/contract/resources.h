@@ -23,6 +23,25 @@ struct PrefillWork {
     [[nodiscard]] friend constexpr bool operator==(PrefillWork, PrefillWork) noexcept = default;
 };
 
+namespace detail {
+// Saturating 64-bit product (returns UINT64_MAX on overflow). Portable: avoids __int128,
+// which MSVC does not support on x64.
+[[nodiscard]] inline std::uint64_t saturating_product(std::uint64_t left,
+                                                      std::uint64_t right) noexcept {
+    if (right != 0 && left > std::numeric_limits<std::uint64_t>::max() / right) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return left * right;
+}
+// Saturating 64-bit sum (returns UINT64_MAX on overflow).
+[[nodiscard]] inline std::uint64_t saturating_add(std::uint64_t left,
+                                                  std::uint64_t right) noexcept {
+    return right > std::numeric_limits<std::uint64_t>::max() - left
+               ? std::numeric_limits<std::uint64_t>::max()
+               : left + right;
+}
+}  // namespace detail
+
 // Exact prefill feature definition for a suffix beginning after prefix_tokens. Attention work is
 // prefix*suffix + suffix*(suffix+1)/2 and all arithmetic saturates.
 [[nodiscard]] inline PrefillWork make_prefill_work(std::uint64_t prefix_tokens,
@@ -36,15 +55,20 @@ struct PrefillWork {
     result.tokens                       = suffix_tokens;
     result.vision_items                 = vision_items;
     result.vision_patches               = vision_patches;
-    const unsigned __int128 suffix      = suffix_tokens;
-    const unsigned __int128 linear      = static_cast<unsigned __int128>(prefix_tokens) * suffix;
-    const unsigned __int128 triangular  = suffix * (suffix + 1U) / 2U;
-    constexpr unsigned __int128 maximum = ~static_cast<unsigned __int128>(0);
-    const unsigned __int128 attention =
-        triangular > maximum - linear ? maximum : linear + triangular;
-    result.attention_pairs = attention > std::numeric_limits<std::uint64_t>::max()
-                                 ? std::numeric_limits<std::uint64_t>::max()
-                                 : static_cast<std::uint64_t>(attention);
+    const std::uint64_t suffix          = suffix_tokens;
+    const std::uint64_t linear          = detail::saturating_product(prefix_tokens, suffix);
+    // triangular = suffix*(suffix+1)/2. Divide the even factor by two first so the product never
+    // overflows beyond the exact result, then guard that exact result against uint64 overflow.
+    std::uint64_t triangular = std::numeric_limits<std::uint64_t>::max();
+    if (suffix < std::numeric_limits<std::uint64_t>::max()) {
+        const bool even                = (suffix & 1U) == 0;
+        const std::uint64_t a          = even ? suffix / 2U : suffix;
+        const std::uint64_t b          = even ? suffix + 1U : (suffix + 1U) / 2U;
+        triangular                     = b != 0 && a > std::numeric_limits<std::uint64_t>::max() / b
+                                            ? std::numeric_limits<std::uint64_t>::max()
+                                            : a * b;
+    }
+    result.attention_pairs = detail::saturating_add(linear, triangular);
     return result;
 }
 

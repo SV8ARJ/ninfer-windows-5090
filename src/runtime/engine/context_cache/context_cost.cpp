@@ -12,7 +12,12 @@
 #include <system_error>
 #include <utility>
 
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
 #include <unistd.h>
+#endif
 
 namespace ninfer::runtime {
 
@@ -23,7 +28,6 @@ const std::vector<ContextCostMachinePreset>& compiled_context_cost_defaults();
 namespace {
 
 using Json = nlohmann::json;
-using U128 = unsigned __int128;
 
 constexpr std::size_t direction_index(ContextTransferDirection direction) noexcept {
     return static_cast<std::size_t>(direction);
@@ -35,19 +39,27 @@ std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept {
                : left + right;
 }
 
+// Portable saturating product (avoids __int128, which MSVC does not support on x64).
 std::uint64_t saturating_product(std::uint64_t left, std::uint64_t right) noexcept {
-    const U128 product = static_cast<U128>(left) * right;
-    return product > std::numeric_limits<std::uint64_t>::max()
-               ? std::numeric_limits<std::uint64_t>::max()
-               : static_cast<std::uint64_t>(product);
+    if (right != 0 && left > std::numeric_limits<std::uint64_t>::max() / right) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return left * right;
 }
 
 std::uint64_t q32_product_ns(std::uint64_t coefficient, std::uint64_t units) noexcept {
     if (coefficient == 0 || units == 0) { return 0; }
-    const U128 product        = static_cast<U128>(coefficient) * units;
-    const U128 maximum_scaled = static_cast<U128>(std::numeric_limits<std::uint64_t>::max()) << 32U;
-    if (product >= maximum_scaled) { return std::numeric_limits<std::uint64_t>::max(); }
-    return static_cast<std::uint64_t>((product + kContextCostQ32One - 1U) >> 32U);
+    // coefficient is a Q32 fixed-point value, so the natural product is coefficient*units.
+    // When the product fits in 64 bits, scale with round-up; a product of 2^32 or more in the
+    // high part is equivalent to a saturation. This reproduces the 128-bit reference exactly.
+    if (coefficient > std::numeric_limits<std::uint64_t>::max() / units) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    const std::uint64_t product = coefficient * units;
+    if (product >= std::numeric_limits<std::uint64_t>::max() - (kContextCostQ32One - 1U)) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return (product + kContextCostQ32One - 1U) >> 32U;
 }
 
 void require_object(const Json& value, std::string_view context) {

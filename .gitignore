@@ -52,6 +52,11 @@ out/
 tools/freq_corpus/fixtures/*
 !tools/freq_corpus/fixtures/ranking/
 
+# Windows port artifacts
+bin/
+bin-clean/
+distribution/
+
 # Editor / OS
 .vscode/
 .idea/
