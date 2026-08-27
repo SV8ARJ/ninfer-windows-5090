@@ -22,6 +22,19 @@ struct alignas(128) Nvfp4W4a4TmaDescriptors {
     CUtensorMap b_scales;
 };
 
+// MSVC rejects passing an alignas(128) aggregate by value (C2719), which blocks the
+// Linux __grid_constant__ by-value parameter. The carrier below holds the identical
+// four tensor maps as a plain (8-byte aligned) by-value structure. Passed by value,
+// the bytes live in grid-constant memory exactly like the Linux path, which is a valid
+// tensor-map source for cp.async.bulk.tensor, and CUDA Graph capture snapshots the
+// parameter bytes so replay never re-reads a host stack address. The byte layout is the
+// same four CUtensorMap members, so the kernel reinterprets it as the aligned struct.
+struct alignas(8) Nvfp4W4a4TmaDescriptorBytes {
+    CUtensorMap maps[4];
+};
+
+static_assert(sizeof(Nvfp4W4a4TmaDescriptorBytes) == sizeof(Nvfp4W4a4TmaDescriptors));
+
 inline void nvfp4_check_driver(CUresult status, const char* operation) {
     if (status == CUDA_SUCCESS) { return; }
     const char* name = nullptr;
@@ -160,11 +173,28 @@ __device__ __forceinline__ void nvfp4_tma_load_2d(void* destination, const CUten
                  : "memory");
 }
 
+// MSVC cannot pass an alignas(128) aggregate by value (C2719). Windows therefore
+// carries the identical four tensor maps by value as a plain 8-byte-aligned struct
+// marked __grid_constant__. The bytes are placed in grid-constant memory (a valid
+// tensor-map source for cp.async.bulk.tensor) and the parameter is snapshotted by
+// CUDA Graph capture, reproducing the Linux by-value semantics without a host stack
+// pointer ever being recorded or re-read at graph replay.
 template <class Geometry, class Schedule, class Epilogue, class OutputPolicy>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4_tma_kernel(
-    const __grid_constant__ Nvfp4W4a4TmaDescriptors descriptors, float alpha,
-    const __grid_constant__ Epilogue epilogue, const __grid_constant__ OutputPolicy output) {
+#ifdef _WIN32
+    const __grid_constant__ Nvfp4W4a4TmaDescriptorBytes descriptors_value,
+#else
+    const __grid_constant__ Nvfp4W4a4TmaDescriptors descriptors,
+#endif
+    float alpha, const __grid_constant__ Epilogue epilogue,
+    const __grid_constant__ OutputPolicy output) {
+#ifdef _WIN32
+    const Nvfp4W4a4TmaDescriptors& d =
+        *reinterpret_cast<const Nvfp4W4a4TmaDescriptors*>(&descriptors_value.maps[0]);
+#else
+    const auto& d = descriptors;
+#endif
     static_assert((Geometry::kInputRows % Schedule::kBlockK) == 0);
     static_assert((Geometry::kOutputRows % Schedule::kBlockN) == 0);
     static_assert(Schedule::kStages >= 2, "the activation-scale buffer needs two slots");
@@ -214,10 +244,10 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4
                                                           : kTransactionBytes - kScaleBytes);
 
                 auto& tensors = shared.scratch.tensors;
-                nvfp4_tma_load_2d(tensors.a_codes[stage], &descriptors.a_codes,
+                nvfp4_tma_load_2d(tensors.a_codes[stage], &d.a_codes,
                                   k_tile * Schedule::kCodeRowBytes, token_begin,
                                   &shared.full[stage]);
-                nvfp4_tma_load_2d(tensors.b_codes[stage], &descriptors.b_codes,
+                nvfp4_tma_load_2d(tensors.b_codes[stage], &d.b_codes,
                                   k_tile * Schedule::kCodeRowBytes, row_begin, &shared.full[stage]);
                 if (load_scales) {
                     nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &descriptors.a_scales,
@@ -226,7 +256,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4
                 const int b_scale_row = ((row_begin / 128) * Geometry::kScaleTilesPerRow +
                                          k_tile * Schedule::kK64PerStage) *
                                         32;
-                nvfp4_tma_load_2d(tensors.b_scales[stage], &descriptors.b_scales, 0, b_scale_row,
+                nvfp4_tma_load_2d(tensors.b_scales[stage], &d.b_scales, 0, b_scale_row,
                                   &shared.full[stage]);
             }
         }
