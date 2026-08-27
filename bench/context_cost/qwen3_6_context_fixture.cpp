@@ -399,12 +399,17 @@ std::vector<TextCase> text_cases(std::uint32_t chunk) {
 }
 
 std::uint64_t attention_pairs(std::uint32_t prefix, std::uint32_t suffix) {
-    const unsigned __int128 pairs = static_cast<unsigned __int128>(prefix) * suffix +
-                                    static_cast<unsigned __int128>(suffix) * (suffix + 1ULL) / 2U;
-    if (pairs > std::numeric_limits<std::uint64_t>::max()) {
+    // Portable exact computation without __int128 (unsupported by MSVC on x64). With uint32 inputs
+    // each term fits in uint64: prefix*suffix <= 2^64-2^33+1 and suffix*(suffix+1) <= 2^64-2^32
+    // (and is always even, so /2 is exact). Only the final sum can exceed uint64.
+    const std::uint64_t p           = prefix;
+    const std::uint64_t s           = suffix;
+    const std::uint64_t linear      = p * s;
+    const std::uint64_t triangular  = (s * (s + 1ULL)) / 2U;
+    if (linear > std::numeric_limits<std::uint64_t>::max() - triangular) {
         throw std::overflow_error("prefill attention-pair count exceeds uint64");
     }
-    return static_cast<std::uint64_t>(pairs);
+    return linear + triangular;
 }
 
 std::vector<std::uint8_t> block_ppm(int width, int height, std::uint8_t value) {

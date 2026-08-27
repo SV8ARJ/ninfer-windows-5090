@@ -2,3 +2,10 @@
 # default whitespace checks.
 /third_party/spdlog/include/** -whitespace
 /third_party/spdlog/src/** -whitespace
+
+# On Windows (core.autocrlf=true), text fixtures are checked out with CRLF line endings.
+# Several tests hash fixture bytes against exact SHA-256 constants computed from the LF form
+# (e.g. CompiledChatTemplate::resolve in src/targets/qwen3_6/impl/frontend/chat_template.cpp).
+# Force LF on checkout so fixture content matches those constants regardless of autocrlf.
+tests/fixtures/**/*.jinja text eol=lf
+tests/fixtures/**/*.json text eol=lf
