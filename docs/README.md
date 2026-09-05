@@ -1,7 +1,8 @@
 # NInfer documentation
 
 Start with the [project README](../README.md) to build NInfer, download a published artifact, and
-run the CLI or HTTP server.
+run the CLI or HTTP server. The Windows RTX 5090 branches also provide a self-contained runtime
+package with a package-local README.
 
 ## User guides
 
@@ -14,6 +15,8 @@ run the CLI or HTTP server.
 | [CLI examples](../examples/cli/) | committed text, multimodal, thinking, long-decode, and long-context inputs |
 
 The executable `--help` output is the exact source for command-line option spelling and defaults.
+The optimized Windows route has numerical-oracle and CUDA Graph replay qualification; a current
+end-to-end clean-versus-optimized A/B comparison remains pending.
 
 ## Model artifacts
 
