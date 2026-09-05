@@ -5,8 +5,13 @@
 
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <sys/ioctl.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -76,8 +81,17 @@ PhasePresentation phase_presentation(StartupPhase phase) noexcept {
 }
 
 std::size_t terminal_columns() noexcept {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    const HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (stderr_handle != INVALID_HANDLE_VALUE && stderr_handle != nullptr &&
+        GetConsoleScreenBufferInfo(stderr_handle, &info)) {
+        return static_cast<std::size_t>(info.srWindow.Right - info.srWindow.Left + 1);
+    }
+#else
     winsize size{};
     if (::ioctl(STDERR_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col != 0) { return size.ws_col; }
+#endif
     return 120;
 }
 

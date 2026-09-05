@@ -326,7 +326,7 @@ ninfer::PromptInput image_input() {
     return input;
 }
 
-bool near(float actual, float expected) { return std::abs(actual - expected) < 1.0e-6F; }
+bool near_float(float actual, float expected) { return std::abs(actual - expected) < 1.0e-6F; }
 
 constexpr std::array<std::uint8_t, 32> kGradientDigest{
     0x1e, 0x8c, 0xd9, 0x22, 0x40, 0xfa, 0x10, 0x62, 0x7b, 0x60, 0x86, 0x8e, 0xe9, 0x66, 0x41, 0xa2,
@@ -1325,10 +1325,10 @@ int test_image_resize_rejection_policy() {
         R"({"patch_size":16,"temporal_patch_size":2,"merge_size":2,"image_mean":[0.5,0.5,0.5],"image_std":[0.5,0.5,0.5],"size":{"shortest_edge":4096,"longest_edge":1048576}})";
     const Frontend frontend = make_frontend(owned);
 
-    ninfer::PromptInput small = image_input();
-    small.messages[0].parts[0].media.image_resize_policy =
+    ninfer::PromptInput small_input = image_input();
+    small_input.messages[0].parts[0].media.image_resize_policy =
         ninfer::ImageResizePolicy::RejectOversized;
-    int failures = check(frontend.count_tokens(std::move(small)) != 0,
+    int failures = check(frontend.count_tokens(std::move(small_input)) != 0,
                          "oversized_image=error rejected an image that needed no downsize");
 
     ninfer::PromptInput oversized =
@@ -2012,7 +2012,7 @@ int test_media_payload_outlives_frontend_cache() {
     const auto& data = FrontendFactory::inspect(survivor);
     return check(data.media_payloads.size() == 1 && data.media_payloads.front() &&
                      data.media_payloads.front()->patch_elements == 16 * 1536 &&
-                     near(bf16_value(data.media_payloads.front()->span().front()), -1.0F),
+                      near_float(bf16_value(data.media_payloads.front()->span().front()), -1.0F),
                  "request-pinned media payload did not survive its Frontend cache owner");
 }
 

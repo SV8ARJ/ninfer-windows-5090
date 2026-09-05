@@ -24,6 +24,35 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling
+if(MSVC)
+  add_compile_definitions(NOMINMAX)
+  # Upstream's bundled spdlog/fmt source requires the MSVC UTF-8 source and execution charset.
+  add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
+  # C++ exceptions must be enabled for host .cpp files. CUDA passes /EHsc via
+  # nvcc -Xcompiler, but plain cl.exe needs it here too; without it every
+  # throw/try/catch (JSON parse rejection, invalid context-cost provenance,
+  # and so on) compiles into a broken unwind that ends in an uncatchable
+  # FAST_FAIL_GS_COOKIE_INITIALIZATION_FAILURE at run time.
+  if(NOT CMAKE_CXX_FLAGS MATCHES "(^|[ -/])EHsc([ ;]|$)")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
+  endif()
+  # Ship symbolizable Release executables.
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    foreach(_ninfer_rel_flag "/O2" "/Ob2" "/DNDEBUG" "/Zi")
+      if(NOT CMAKE_CXX_FLAGS_RELEASE MATCHES "(^|[ -/])${_ninfer_rel_flag}([ ;]|$)")
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${_ninfer_rel_flag}")
+        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${_ninfer_rel_flag}")
+      endif()
+    endforeach()
+    unset(_ninfer_rel_flag)
+    if(NOT CMAKE_EXE_LINKER_FLAGS_RELEASE MATCHES "/DEBUG")
+      set(CMAKE_EXE_LINKER_FLAGS_RELEASE
+          "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG")
+      set(CMAKE_SHARED_LINKER_FLAGS_RELEASE
+          "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG")
+    endif()
+  endif()
+endif()
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()

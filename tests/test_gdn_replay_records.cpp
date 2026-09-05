@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -11,12 +14,22 @@
 
 namespace {
 
+#ifdef _WIN32
+using AlignedBacking = std::unique_ptr<void, decltype(&_aligned_free)>;
+#else
 using AlignedBacking = std::unique_ptr<void, decltype(&std::free)>;
+#endif
 
 AlignedBacking make_backing(std::size_t bytes) {
+#ifdef _WIN32
+    void* data = _aligned_malloc(bytes, 256);
+    if (data == nullptr) { throw std::bad_alloc(); }
+    return AlignedBacking(data, &_aligned_free);
+#else
     void* data = std::aligned_alloc(256, bytes);
     if (data == nullptr) { throw std::bad_alloc(); }
     return AlignedBacking(data, &std::free);
+#endif
 }
 
 int fail(const char* label) {
