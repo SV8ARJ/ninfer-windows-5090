@@ -3,7 +3,24 @@
 
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#define NINFER_PIPE(fds) _pipe((fds), 4096, _O_BINARY)
+#define NINFER_DUP _dup
+#define NINFER_DUP2 _dup2
+#define NINFER_CLOSE _close
+#define NINFER_READ _read
+#define NINFER_STDERR_FD _fileno(stderr)
+#else
 #include <unistd.h>
+#define NINFER_PIPE(fds) pipe(fds)
+#define NINFER_DUP dup
+#define NINFER_DUP2 dup2
+#define NINFER_CLOSE close
+#define NINFER_READ read
+#define NINFER_STDERR_FD STDERR_FILENO
+#endif
 
 #include <algorithm>
 #include <array>
@@ -20,33 +37,35 @@ namespace {
 class StderrCapture {
 public:
     StderrCapture() {
-        if (::pipe(pipe_) != 0) { throw std::runtime_error(std::strerror(errno)); }
-        saved_ = ::dup(STDERR_FILENO);
-        if (saved_ < 0 || ::dup2(pipe_[1], STDERR_FILENO) < 0) {
+        if (NINFER_PIPE(pipe_) != 0) { throw std::runtime_error(std::strerror(errno)); }
+        saved_ = NINFER_DUP(NINFER_STDERR_FD);
+        if (saved_ < 0 || NINFER_DUP2(pipe_[1], NINFER_STDERR_FD) < 0) {
             throw std::runtime_error(std::strerror(errno));
         }
-        ::close(pipe_[1]);
+        NINFER_CLOSE(pipe_[1]);
         pipe_[1] = -1;
     }
 
     ~StderrCapture() {
         if (saved_ >= 0) {
-            (void)::dup2(saved_, STDERR_FILENO);
-            ::close(saved_);
+            (void)NINFER_DUP2(saved_, NINFER_STDERR_FD);
+            NINFER_CLOSE(saved_);
         }
-        if (pipe_[0] >= 0) { ::close(pipe_[0]); }
+        if (pipe_[0] >= 0) { NINFER_CLOSE(pipe_[0]); }
     }
 
     std::string finish() {
         std::fflush(stderr);
-        if (::dup2(saved_, STDERR_FILENO) < 0) { throw std::runtime_error(std::strerror(errno)); }
-        ::close(saved_);
+        if (NINFER_DUP2(saved_, NINFER_STDERR_FD) < 0) {
+            throw std::runtime_error(std::strerror(errno));
+        }
+        NINFER_CLOSE(saved_);
         saved_ = -1;
 
         std::string output;
         std::array<char, 4096> buffer{};
         for (;;) {
-            const ssize_t count = ::read(pipe_[0], buffer.data(), buffer.size());
+            const int count = NINFER_READ(pipe_[0], buffer.data(), static_cast<unsigned int>(buffer.size()));
             if (count == 0) { break; }
             if (count < 0) {
                 if (errno == EINTR) { continue; }
@@ -54,7 +73,7 @@ public:
             }
             output.append(buffer.data(), static_cast<std::size_t>(count));
         }
-        ::close(pipe_[0]);
+        NINFER_CLOSE(pipe_[0]);
         pipe_[0] = -1;
         return output;
     }
@@ -75,6 +94,13 @@ std::size_t line_count(std::string_view value) {
 }
 
 } // namespace
+
+#undef NINFER_PIPE
+#undef NINFER_DUP
+#undef NINFER_DUP2
+#undef NINFER_CLOSE
+#undef NINFER_READ
+#undef NINFER_STDERR_FD
 
 int main() {
     int failures = 0;
