@@ -20,7 +20,35 @@ NInfer supports five artifact identities. The quick-start commands use Qwen3.8-2
 The artifact identity fixes the exact model and weight profile. Every artifact also embeds the
 tokenizer, chat template, and media frontend resources required by its registered target.
 
-## Quick start
+## Windows RTX 5090 builds
+
+The Windows port targets native MSVC, CUDA 13.1, and `sm_120a` on an RTX 5090. It is maintained in
+two branches:
+
+- `windows-port-clean` is the current upstream runtime with the validated Windows/MSVC corrections.
+- `windows-port-optimized-current` contains that same clean baseline plus retained NVFP4 prefill
+  routes: fused LinearSwiGLU through `T=96`, M256 TMA SwiGLU routing, clustered SwiGLU TMA at
+  `T=512/768/1024`, and clustered S3 projection/LinearAdd TMA at `T=1024`.
+
+Both routes include independent numerical-oracle, workspace/guard, and CUDA Graph replay coverage.
+The optimized branch has not yet been compared end-to-end against the clean branch, so it makes no
+current net-throughput claim.
+
+### Windows runtime package
+
+A Windows package contains `ninfer.exe`, `ninfer-serve.exe`, `ninfer-perplexity.exe`, the required
+FFmpeg/libcurl/MSVC DLLs, example launchers, and an empty `models\` directory. CUDA is linked
+statically, so a CUDA Toolkit is not needed to run the package; a compatible NVIDIA driver is.
+
+Place a supported `.ninfer` artifact in `models\`, then run from the package directory:
+
+```cmd
+ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 8080 --vision
+```
+
+Use `ninfer.exe --help` and `ninfer-serve.exe --help` as the exact Windows command-line reference.
+
+## Linux source build
 
 NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, CUDA Toolkit 13.1 or newer, CMake 3.28 or
 newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
@@ -37,8 +65,8 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-Tests, benchmarks, and maintainer tools are excluded from the default build. There is no install
-target or packaged binary distribution; run NInfer from its source build tree.
+Tests, benchmarks, and maintainer tools are excluded from the default build. There is no Linux
+install target or binary package; run NInfer from its source build tree.
 
 Download the artifact used by this example with the Hugging Face CLI:
 
