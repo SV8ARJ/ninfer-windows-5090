@@ -26,6 +26,8 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling
 if(MSVC)
   add_compile_definitions(NOMINMAX)
+  # Upstream's bundled spdlog/fmt source requires the MSVC UTF-8 source and execution charset.
+  add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
   # C++ exceptions must be enabled for host .cpp files. CUDA passes /EHsc via
   # nvcc -Xcompiler, but plain cl.exe needs it here too; without it every
   # throw/try/catch (JSON parse rejection, invalid context-cost provenance,
