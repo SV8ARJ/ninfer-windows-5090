@@ -297,8 +297,36 @@ int run_profile(std::string_view label, const Profile& profile,
         workspace.reset_peak();
         const std::string case_label = std::string(label) + " T=" + std::to_string(tokens);
         try {
-            ops::linear_swiglu(x, weight, destination, policy, workspace, nullptr);
-            test::cuda_check(cudaDeviceSynchronize(), "synchronize LinearSwiGLU");
+            const bool graph_replay = profile.qtype == QType::NVFP4 &&
+                                      profile.activation_compute == ActivationCompute::A4 &&
+                                      tokens >= 512 && tokens <= 1024 && (tokens % 256) == 0;
+            if (graph_replay) {
+                cudaStream_t stream  = nullptr;
+                cudaGraph_t graph    = nullptr;
+                cudaGraphExec_t exec = nullptr;
+                test::cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                                 "create LinearSwiGLU graph stream");
+                test::cuda_check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+                                 "begin LinearSwiGLU graph capture");
+                ops::linear_swiglu(x, weight, destination, policy, workspace, stream);
+                test::cuda_check(cudaStreamEndCapture(stream, &graph),
+                                 "end LinearSwiGLU graph capture");
+                test::cuda_check(cudaGraphInstantiate(&exec, graph, 0),
+                                 "instantiate LinearSwiGLU graph");
+                test::cuda_check(cudaGraphLaunch(exec, stream),
+                                 "launch LinearSwiGLU graph first replay");
+                test::cuda_check(cudaGraphLaunch(exec, stream),
+                                 "launch LinearSwiGLU graph second replay");
+                test::cuda_check(cudaStreamSynchronize(stream),
+                                 "synchronize LinearSwiGLU graph replay");
+                test::cuda_check(cudaGraphExecDestroy(exec),
+                                 "destroy LinearSwiGLU graph executable");
+                test::cuda_check(cudaGraphDestroy(graph), "destroy LinearSwiGLU graph");
+                test::cuda_check(cudaStreamDestroy(stream), "destroy LinearSwiGLU graph stream");
+            } else {
+                ops::linear_swiglu(x, weight, destination, policy, workspace, nullptr);
+                test::cuda_check(cudaDeviceSynchronize(), "synchronize LinearSwiGLU");
+            }
         } catch (const std::exception& error) {
             std::cerr << case_label << ": unexpected exception: " << error.what() << '\n';
             ++failures;

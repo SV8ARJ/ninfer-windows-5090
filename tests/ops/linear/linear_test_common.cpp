@@ -336,7 +336,24 @@ int run_shape(std::string_view label, ActivationCompute activation_compute,
             weight.qtype, shape.n, shape.k, invocation.policy, invocation.t, invocation.t);
         DeviceArena workspace(std::max<std::size_t>(capacity, 256));
         try {
-            if (invocation.call_form == CallForm::A16Convenience) {
+            if (invocation.graph_replay) {
+                cudaStream_t stream  = nullptr;
+                cudaGraph_t graph    = nullptr;
+                cudaGraphExec_t exec = nullptr;
+                cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                           "create linear graph stream");
+                cuda_check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+                           "begin linear graph capture");
+                ops::linear(input, weight, destination, invocation.policy, workspace, stream);
+                cuda_check(cudaStreamEndCapture(stream, &graph), "end linear graph capture");
+                cuda_check(cudaGraphInstantiate(&exec, graph, 0), "instantiate linear graph");
+                cuda_check(cudaGraphLaunch(exec, stream), "launch linear graph first replay");
+                cuda_check(cudaGraphLaunch(exec, stream), "launch linear graph second replay");
+                cuda_check(cudaStreamSynchronize(stream), "synchronize linear graph replay");
+                cuda_check(cudaGraphExecDestroy(exec), "destroy linear graph executable");
+                cuda_check(cudaGraphDestroy(graph), "destroy linear graph");
+                cuda_check(cudaStreamDestroy(stream), "destroy linear graph stream");
+            } else if (invocation.call_form == CallForm::A16Convenience) {
                 ops::linear(input, weight, destination, nullptr);
             } else {
                 ops::linear(input, weight, destination, invocation.policy, workspace, nullptr);
