@@ -250,7 +250,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4
                 nvfp4_tma_load_2d(tensors.b_codes[stage], &d.b_codes,
                                   k_tile * Schedule::kCodeRowBytes, row_begin, &shared.full[stage]);
                 if (load_scales) {
-                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &descriptors.a_scales,
+                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &d.a_scales,
                                       (k_tile / 2) * 16, token_begin, &shared.full[stage]);
                 }
                 const int b_scale_row = ((row_begin / 128) * Geometry::kScaleTilesPerRow +

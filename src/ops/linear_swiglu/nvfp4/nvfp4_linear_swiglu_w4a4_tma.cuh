@@ -129,7 +129,7 @@ __global__ __launch_bounds__(
                                   &d.b_codes, k_tile * Schedule::kCodeRowBytes,
                                   pair_begin + kIntermediate, &shared.full[stage]);
                 if (load_scales) {
-                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &descriptors.a_scales,
+                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &d.a_scales,
                                       (k_tile / 2) * 16, token_begin, &shared.full[stage]);
                 }
 
