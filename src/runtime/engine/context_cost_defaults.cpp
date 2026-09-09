@@ -75,6 +75,18 @@ const std::vector<ContextCostMachinePreset>& compiled_context_cost_defaults() {
                                 .vision_patch_ns_q32   = 23'832'529'381'413,
                             },
                     },
+                    ContextPrefillPreset{
+                        .model_id   = "qwen3.8-27b-uncensored",
+                        .weights_id = "nvfp4",
+                        .cost =
+                            {
+                                .chunk_ns              = 14'672'989,
+                                .token_ns_q32          = 375'800'765'711'778,
+                                .attention_pair_ns_q32 = 8'200'474'657,
+                                .vision_item_ns        = 5'860'255,
+                                .vision_patch_ns_q32   = 23'832'529'381'413,
+                            },
+                    },
                 },
         },
     };
