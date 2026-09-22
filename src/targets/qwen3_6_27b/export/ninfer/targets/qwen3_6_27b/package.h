@@ -82,6 +82,7 @@ struct Package {
     static constexpr std::string_view model_id           = "qwen3.6-27b";
     static constexpr std::string_view target_key         = "qwen3_6_27b";
     static constexpr std::string_view qwen3_8_model_id   = "qwen3.8-27b";
+    static constexpr std::string_view qwen3_8_uncensored_model_id = "qwen3.8-27b-uncensored";
     static constexpr std::string_view qwen3_8_target_key = "qwen3_8_27b";
 
     using WeightsProfile             = detail::WeightsProfile;

@@ -7,7 +7,7 @@ single NVIDIA GeForce RTX 5090. It runs text, image, and video prompts through a
 OpenAI-/Anthropic-compatible HTTP APIs. The runtime is deliberately specialized: one GPU, one
 resident model, and a startup-fixed capacity of one to eight active requests.
 
-NInfer supports five artifact identities. The quick-start commands use Qwen3.8-27B NVFP4.
+NInfer supports seven artifact identities. The quick-start commands use Qwen3.8-27B NVFP4.
 
 | Model | Weights | Artifact | Download and model card |
 |---|---|---|---|
@@ -15,6 +15,8 @@ NInfer supports five artifact identities. The quick-start commands use Qwen3.8-2
 | Qwen3.6-27B | `nvfp4` | `qwen3_6_27b_nvfp4.ninfer` | [Qwen3.6-27B NVFP4](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) |
 | Qwen3.8-27B | `groupwise-int` | `qwen3_8_27b.ninfer` | [Qwen3.8-27B](https://huggingface.co/neroued/Qwen3.8-27B-NInfer) |
 | Qwen3.8-27B | `nvfp4` | `qwen3_8_27b_nvfp4.ninfer` | [Qwen3.8-27B NVFP4](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer) |
+| Qwen3.8-27B-Uncensored | `groupwise-int` | `qwen3_8_27b_uncensored.ninfer` | local conversion |
+| Qwen3.8-27B-Uncensored | `nvfp4` | `qwen3_8_27b_uncensored_nvfp4.ninfer` | local conversion |
 | Qwen3.6-35B-A3B | `groupwise-int` | `qwen3_6_35b_a3b.ninfer` | [Qwen3.6-35B-A3B](https://huggingface.co/neroued/Qwen3.6-35B-A3B-NInfer) |
 
 The artifact identity fixes the exact model and weight profile. Every artifact also embeds the

@@ -26,6 +26,8 @@ end-to-end clean-versus-optimized A/B comparison remains pending.
 | Qwen3.6-27B | `nvfp4` | [Hugging Face](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) | [model card](../model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md) |
 | Qwen3.8-27B | `groupwise-int` | [Hugging Face](https://huggingface.co/neroued/Qwen3.8-27B-NInfer) | [model card](../model-cards/Qwen3.8-27B-NInfer/README.md) |
 | Qwen3.8-27B | `nvfp4` | [Hugging Face](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer) | [model card](../model-cards/Qwen3.8-27B-nvfp4-NInfer/README.md) |
+| Qwen3.8-27B-Uncensored | `groupwise-int` | local conversion | [artifact contract](maintainer/qwen3.8-27b-uncensored-artifact.md) |
+| Qwen3.8-27B-Uncensored | `nvfp4` | local conversion | [artifact contract](maintainer/qwen3.8-27b-uncensored-artifact.md) |
 | Qwen3.6-35B-A3B | `groupwise-int` | [Hugging Face](https://huggingface.co/neroued/Qwen3.6-35B-A3B-NInfer) | [model card](../model-cards/Qwen3.6-35B-A3B-NInfer/README.md) |
 
 ## Repository-local guides
@@ -64,5 +66,6 @@ Artifact and model references:
 - [Qwen3.6-27B model semantics](maintainer/qwen3.6-27b-model.md)
 - [Qwen3.6-27B artifact contracts, including NVFP4](maintainer/qwen3.6-27b-artifact.md)
 - [Qwen3.8-27B artifact contracts, including the NVFP4 target](maintainer/qwen3.8-27b-artifact.md)
+- [Qwen3.8-27B-Uncensored artifact contracts](maintainer/qwen3.8-27b-uncensored-artifact.md)
 - [Qwen3.6-35B-A3B model semantics](maintainer/qwen3.6-35b-a3b-model.md)
 - [Qwen3.6-35B-A3B artifact contracts](maintainer/qwen3.6-35b-a3b-artifact.md)

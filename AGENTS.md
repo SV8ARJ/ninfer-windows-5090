@@ -107,7 +107,8 @@ intermediate artifacts are excluded unless requested or themselves the deliverab
 NInfer is a from-scratch C++/CUDA inference engine for maximum single-GPU inference performance on
 a small set of explicitly registered checkpoint artifacts. The supported identities are
 `qwen3.6-27b/groupwise-int`, `qwen3.6-27b/nvfp4`, `qwen3.8-27b/groupwise-int`,
-`qwen3.8-27b/nvfp4`, and `qwen3.6-35b-a3b/groupwise-int`. The current implementation is compiled
+`qwen3.8-27b/nvfp4`, `qwen3.8-27b-uncensored/groupwise-int`,
+`qwen3.8-27b-uncensored/nvfp4`, and `qwen3.6-35b-a3b/groupwise-int`. The current implementation is compiled
 for `sm_120a` and tuned and measured on NVIDIA GeForce RTX 5090. All identities execute Text,
 image/video Vision, MTP, prefix reuse, CLI, OpenAI/Anthropic serving, and measurement through the
 same public `.ninfer` Engine route; the 35B-A3B target additionally supports DFlash for both Text
@@ -362,7 +363,7 @@ If MSYS2 FFmpeg/curl packages are updated, regenerate import libraries:
 
 ```pwsh
 # From repository root, with MSVC lib.exe available:
-$libExe = "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.41.34120\bin\Hostx64\x64\lib.exe"
+$libExe = "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\lib.exe"
 $outDir = "L:\Temp\ninfer\windows-libs"
 $msysDir = "C:\msys64\mingw64"
 
@@ -411,7 +412,7 @@ Copy-Item -Recurse "$msysDir\include\curl\*" "$curlInc\curl\"
 ### Configure and build
 
 ```pwsh
-cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat" -arch=amd64 && cmake -S L:\Temp\ninfer -B L:\Temp\ninfer\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/cl.exe" -DCMAKE_CXX_COMPILER="C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/cl.exe" && cmake --build L:\Temp\ninfer\build --parallel'
+cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat" -arch=amd64 && cmake -S L:\Temp\ninfer -B L:\Temp\ninfer\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe" -DCMAKE_CXX_COMPILER="C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe" && cmake --build L:\Temp\ninfer\build --parallel'
 ```
 
 After a successful build, copy executables and runtime DLLs to `bin/`:
@@ -422,7 +423,7 @@ Copy-Item L:\Temp\ninfer\build\apps\ninfer.exe L:\Temp\ninfer\bin\
 Copy-Item L:\Temp\ninfer\build\apps\ninfer-serve.exe L:\Temp\ninfer\bin\
 
 # MSVC runtime
-$msvcDll = "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.41.34120\bin\Hostx64\x64"
+$msvcDll = "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64"
 @("MSVCP140.dll","VCRUNTIME140.dll","VCRUNTIME140_1.dll") | ForEach-Object {
     Copy-Item "$msvcDll\$_" L:\Temp\ninfer\bin\
 }
