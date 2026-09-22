@@ -24,8 +24,12 @@ public:
 
 private:
     std::filesystem::path path_;
+#ifdef _WIN32
+    void* fd_              = nullptr;
+#else
     int fd_                = -1;
     mutable int direct_fd_ = -1;
+#endif
     std::uint64_t bytes_   = 0;
 };
 

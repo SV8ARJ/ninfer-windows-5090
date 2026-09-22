@@ -23,6 +23,14 @@ struct alignas(128) Nvfp4W4a4TmaDescriptors {
     CUtensorMap b_scales;
 };
 
+#ifdef _WIN32
+// MSVC cannot pass the 128-byte-aligned descriptor aggregate by value. The bytes still enter
+// grid-constant memory, which keeps TMA descriptor access valid under CUDA Graph replay.
+struct alignas(8) Nvfp4W4a4TmaDescriptorBytes {
+    CUtensorMap maps[4];
+};
+#endif
+
 inline void nvfp4_check_driver(CUresult status, const char* operation) {
     if (status == CUDA_SUCCESS) { return; }
     const char* name = nullptr;
@@ -184,9 +192,17 @@ __device__ __forceinline__ void nvfp4_tma_load_2d(void* destination, const CUten
 template <class Geometry, class Schedule, class Epilogue, class OutputPolicy>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4_tma_kernel(
+#ifdef _WIN32
+    const __grid_constant__ Nvfp4W4a4TmaDescriptorBytes descriptors_value, float alpha,
+#else
     const __grid_constant__ Nvfp4W4a4TmaDescriptors descriptors, float alpha,
+#endif
     const __grid_constant__ Epilogue epilogue, const __grid_constant__ OutputPolicy output,
     int token_count) {
+#ifdef _WIN32
+    const auto& descriptors =
+        *reinterpret_cast<const Nvfp4W4a4TmaDescriptors*>(&descriptors_value.maps[0]);
+#endif
     static_assert((Geometry::kInputRows % Schedule::kBlockK) == 0);
     static_assert((Geometry::kOutputRows % Schedule::kBlockN) == 0);
     static_assert(Schedule::kStages >= 2, "the activation-scale buffer needs two slots");

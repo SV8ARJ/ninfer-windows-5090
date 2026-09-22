@@ -16,6 +16,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
 namespace ninfer::runtime {
 
 struct MaterializationCheckpointPolicy {
@@ -906,6 +910,11 @@ private:
         const bool prior_complete = prior.unsatisfied_constraints == 0;
         if (restore || (complete && prior_complete)) { return cost.key() < prior.key(); }
         if (feasibility_first) {
+            // Reach feasibility through a retaining closure when available; eviction is a
+            // degradation, not a preferred shortcut merely because it completes one step sooner.
+            if (cost.owner_evictions != prior.owner_evictions) {
+                return cost.owner_evictions < prior.owner_evictions;
+            }
             if (complete != prior_complete) { return complete; }
             return std::tuple{cost.estimated_remaining_steps, cost.normalized_residual_q20,
                               cost.key()} < std::tuple{prior.estimated_remaining_steps,
@@ -924,9 +933,18 @@ private:
                            ? item.estimated_total_ns - parent.estimated_total_ns
                            : 0;
             };
+#ifdef _MSC_VER
+            std::uint64_t left_low  = 0;
+            std::uint64_t right_low = 0;
+            const std::uint64_t left_high  = _umul128(delta(cost), b, &left_low);
+            const std::uint64_t right_high = _umul128(delta(prior), a, &right_low);
+            if (left_high != right_high) { return left_high < right_high; }
+            if (left_low != right_low) { return left_low < right_low; }
+#else
             const __uint128_t left  = static_cast<__uint128_t>(delta(cost)) * b;
             const __uint128_t right = static_cast<__uint128_t>(delta(prior)) * a;
             if (left != right) { return left < right; }
+#endif
         }
         return cost.key() < prior.key();
     }

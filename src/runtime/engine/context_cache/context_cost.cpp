@@ -49,17 +49,19 @@ std::uint64_t saturating_product(std::uint64_t left, std::uint64_t right) noexce
 
 std::uint64_t q32_product_ns(std::uint64_t coefficient, std::uint64_t units) noexcept {
     if (coefficient == 0 || units == 0) { return 0; }
-    // coefficient is a Q32 fixed-point value, so the natural product is coefficient*units.
-    // When the product fits in 64 bits, scale with round-up; a product of 2^32 or more in the
-    // high part is equivalent to a saturation. This reproduces the 128-bit reference exactly.
-    if (coefficient > std::numeric_limits<std::uint64_t>::max() / units) {
-        return std::numeric_limits<std::uint64_t>::max();
-    }
-    const std::uint64_t product = coefficient * units;
-    if (product >= std::numeric_limits<std::uint64_t>::max() - (kContextCostQ32One - 1U)) {
-        return std::numeric_limits<std::uint64_t>::max();
-    }
-    return (product + kContextCostQ32One - 1U) >> 32U;
+    constexpr std::uint64_t mask = kContextCostQ32One - 1U;
+    const std::uint64_t coefficient_low  = coefficient & mask;
+    const std::uint64_t coefficient_high = coefficient >> 32U;
+    const std::uint64_t units_low        = units & mask;
+    const std::uint64_t units_high       = units >> 32U;
+
+    // ceil(coefficient * units / 2^32), evaluated as 32-bit limbs so a representable
+    // scaled result is not confused with an overflowing unscaled intermediate.
+    std::uint64_t result = saturating_product(coefficient_high, units);
+    result = saturating_add(result, coefficient_low * units_high);
+    const std::uint64_t low_product = coefficient_low * units_low;
+    result = saturating_add(result, low_product >> 32U);
+    return saturating_add(result, (low_product & mask) != 0 ? 1U : 0U);
 }
 
 void require_object(const Json& value, std::string_view context) {

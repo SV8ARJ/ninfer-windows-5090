@@ -39,12 +39,22 @@ KNOWN_COUNTS = {
     ("qwen3.6-27b", "nvfp4"): (1307,),
     ("qwen3.8-27b", "groupwise-int"): (1124, 1190),
     ("qwen3.8-27b", "nvfp4"): (1124, 1190),
+    ("qwen3.8-27b-uncensored", "nvfp4"): (1124, 1190),
     ("qwen3.6-35b-a3b", "groupwise-int"): (940,),
 }
 LIMIT = 32_000_000_000
 HEADER = struct.Struct("<8sQ16s")
 CHUNK = 8 * 1024 * 1024
 WRITEBACK = 64 * 1024 * 1024
+
+
+def drop_cache(fd, offset=0, length=0):
+    if hasattr(os, "posix_fadvise"):
+        os.posix_fadvise(fd, offset, length, os.POSIX_FADV_DONTNEED)
+
+
+def sync_data(fd):
+    getattr(os, "fdatasync", os.fsync)(fd)
 
 
 def align(value, amount=4096):
@@ -828,11 +838,8 @@ def upgrade(input_path, output_path):
                             )
                             if not chunk:
                                 raise ValueError("v2 payload ended prematurely")
-                            os.posix_fadvise(
-                                source.fileno(),
-                                source.tell() - len(chunk),
-                                len(chunk),
-                                os.POSIX_FADV_DONTNEED,
+                            drop_cache(
+                                source.fileno(), source.tell() - len(chunk), len(chunk)
                             )
                         elif cursor < template_offset:
                             chunk = bytes(min(remaining, template_offset - cursor))
@@ -845,15 +852,13 @@ def upgrade(input_path, output_path):
                         pending += len(chunk)
                         if pending >= WRITEBACK:
                             output.flush()
-                            os.fdatasync(output.fileno())
-                            os.posix_fadvise(
-                                output.fileno(), 0, 0, os.POSIX_FADV_DONTNEED
-                            )
+                            sync_data(output.fileno())
+                            drop_cache(output.fileno())
                             pending = 0
                     output.flush()
-                    os.fdatasync(output.fileno())
-                    os.posix_fadvise(output.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
-            os.posix_fadvise(source.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+                    sync_data(output.fileno())
+                    drop_cache(output.fileno())
+            drop_cache(source.fileno())
         for index in [*range(1, len(targets)), 0]:
             os.link(temporary[index], targets[index])
             published.append(targets[index])

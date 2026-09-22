@@ -135,7 +135,7 @@ __global__ __launch_bounds__(
                         Geometry::kGroupsPerRow / kNvfp4ScaleTileGroups;
                     const int scale_tile =
                         (token_begin / Schedule::kBlockM) * kScaleTilesPerPlane + k_tile / 2;
-                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &descriptors.a_scales, 0,
+                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &d.a_scales, 0,
                                       scale_tile * 16, &shared.full[stage]);
                 }
 

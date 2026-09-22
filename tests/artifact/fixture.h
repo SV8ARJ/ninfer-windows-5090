@@ -46,12 +46,25 @@ struct Fixture {
     std::vector<std::byte> payload;
 
     Fixture() : payload(1344) {
+#ifdef _WIN32
+        std::error_code error;
+        for (unsigned attempt = 0; attempt != 100; ++attempt) {
+            directory = std::filesystem::temp_directory_path() /
+                        ("ninfer-artifact-" + std::to_string(std::rand()));
+            if (std::filesystem::create_directory(directory, error)) { break; }
+            error.clear();
+        }
+        if (directory.empty() || !std::filesystem::is_directory(directory)) {
+            throw std::runtime_error("cannot create fixture directory");
+        }
+#else
         auto pattern = (std::filesystem::temp_directory_path() / "ninfer-artifact-XXXXXX").string();
         std::vector<char> buffer(pattern.begin(), pattern.end());
         buffer.push_back('\0');
         const char* path = ::mkdtemp(buffer.data());
         if (!path) { throw std::runtime_error("cannot create fixture directory"); }
         directory = path;
+#endif
         entry     = directory / "model.ninfer";
         root      = {
             {"components",
