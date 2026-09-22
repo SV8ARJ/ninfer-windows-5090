@@ -25,16 +25,19 @@ tokenizer, chat template, and media frontend resources required by its registere
 ## Windows RTX 5090 builds
 
 The Windows port targets native MSVC, CUDA 13.1, and `sm_120a` on an RTX 5090. It is maintained in
-two branches:
+three branches:
 
-- `windows-port-clean` is the current upstream runtime with the validated Windows/MSVC corrections.
+- `windows-port-v3-integration` ports the current upstream v3 runtime to Windows/MSVC, carrying the
+  validated MSVC corrections. The v3 runtime reads model configuration from the artifact itself, so
+  locally converted weight profiles run without a compile-time identity registration.
+- `windows-port-clean` is the previous upstream runtime with the validated Windows/MSVC corrections.
 - `windows-port-optimized-current` contains that same clean baseline plus retained NVFP4 prefill
   routes: fused LinearSwiGLU through `T=96`, M256 TMA SwiGLU routing, clustered SwiGLU TMA at
   `T=512/768/1024`, and clustered S3 projection/LinearAdd TMA at `T=1024`.
 
-Both routes include independent numerical-oracle, workspace/guard, and CUDA Graph replay coverage.
-The optimized branch has not yet been compared end-to-end against the clean branch, so it makes no
-current net-throughput claim.
+The clean and optimized routes include independent numerical-oracle, workspace/guard, and CUDA
+Graph replay coverage. The optimized branch has not yet been compared end-to-end against the clean
+branch, so it makes no current net-throughput claim.
 
 ### Windows runtime package
 
