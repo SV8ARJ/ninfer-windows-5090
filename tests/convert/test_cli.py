@@ -8,6 +8,13 @@ import sys
 
 from tools.artifact.reader import Artifact
 from tools.artifact.schema import binding_parts
+from tools.convert.__main__ import _function
+
+
+def test_custom_recipe_function_suffix(tmp_path):
+    recipe = tmp_path / "recipe.py"
+    recipe.write_text("def custom():\n    return 7\n")
+    assert _function(f"{recipe}:custom")() == 7
 
 
 def test_cli_custom_sources_method_template_and_shards(tmp_path):

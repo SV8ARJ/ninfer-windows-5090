@@ -5,7 +5,8 @@ can reuse an official conversion, change selected layers or projections, combine
 your own conversion method. The artifact contains the resulting configuration, encoded weights,
 logical bindings and frontend resources.
 
-Run the commands below from the repository root.
+Run the commands below from the repository root. Source conversion, artifact inspection and the
+standalone v2-to-v3 upgrader support Linux and native Windows Python.
 
 ## Upgrade an existing v2 artifact
 
@@ -22,7 +23,24 @@ python3 tools/upgrade_ninfer_v2_to_v3.py \
 The output must use a new path. After upgrading, use it directly or rename it to replace the
 original file. Stored weight values and formats are preserved. The upgrade also installs the
 matching template from `tools/chat_templates/`. Published SHA-256 checksums apply only to
-downloaded files.
+downloaded files. The upgrader accepts only the known official v2 identity and object-inventory
+combinations; files with different objects, formats or layouts are rejected even if the identity
+matches. It uses a fixed 32,000,000,000-byte file limit, creates continuation parts when required,
+and does not write a `.conversion.json` report.
+
+## Supported source checkpoint schema
+
+The built-in model adapter accepts Qwen3.5 Dense or MoE configurations whose single
+`architectures` entry is `Qwen3_5ForCausalLM`, `Qwen3_5ForConditionalGeneration`,
+`Qwen3_5MoeForCausalLM` or `Qwen3_5MoeForConditionalGeneration`. Official Qwen3.6 and Qwen3.8
+checkpoints use these architecture records.
+
+The adapter expects the tensor naming and axes implemented in
+[`qwen3_5.py`](../tools/convert/qwen3_5.py): `model.*` or `model.language_model.*` for Text,
+`model.visual.*` for Vision, `mtp.*` for MTP, and the implemented DFlash/DFlash2 schemas.
+Mathematically compatible checkpoints with different names, fusion or axis order require an
+explicit `LogicalSource`; selecting an official recipe does not infer an arbitrary architecture or
+checkpoint layout.
 
 ## Start with an official recipe
 
@@ -43,9 +61,17 @@ python3 -m tools.convert \
   --out models/qwen3_6_27b.ninfer
 ```
 
-`--components` defaults to `text`. Include only the optional components you want to distribute.
-`--proposal` adds the indexed proposal head used by speculative decoding; it uses the repository's
-token ranking and defaults to 131,072 rows. The ordinary full-vocabulary output head is retained.
+`--components` defaults to exactly `text`. Its value is a comma-separated list without spaces;
+`text` is mandatory and entries cannot repeat. Selecting `vision` or `mtp` requires those tensors
+and configuration in `--model`. Selecting `dflash` or `dflash2` requires the corresponding named
+source.
+
+`--proposal` adds a Q4 indexed shortlist head for the speculative backends already selected in
+`--components`; it does not add MTP, DFlash or DFlash2 itself. The ordinary full-vocabulary output
+head is retained. The shortlist defaults to 131,072 rows and is gathered from the base model's
+original output-head source. `--proposal-rows N` changes its size and `--ranking PATH` selects the
+ranking file. The ranking must contain one or more complete little-endian int64 vocabulary rows;
+the converter reads the first row, and `N` must fit the tokenizer's contiguous public token domain.
 
 The built-in recipes are ordinary Python functions in
 [`official_recipes.py`](../tools/convert/official_recipes.py):
@@ -54,9 +80,10 @@ The built-in recipes are ordinary Python functions in
 |---|---|---|
 | `qwen3_6_27b` | Q4/Q5 projections, Q6 vocabulary weights | None |
 | `qwen3_8_27b` | Q4/Q5 projections, Q8 vocabulary weights | None |
-| `qwen3_6_35b_a3b` | Q4 experts, Q5/Q6 expert down, Q8 shared/projection weights | None |
+| `qwen3_6_35b_a3b` | Q4 expert gate/up; Q5 expert down except Q6 in layers 34, 38 and 39; Q8 embedding, shared-expert and other selected projections; Q6 output head; GDN A/B, router and shared-score remain direct | None |
 | `qwen3_6_27b_nvfp4` | Imported NVFP4, selected BF16 projections, Q8 vocabulary weights | `quantized` |
-| `qwen3_8_27b_nvfp4` | Imported NVFP4/FP8, FP8 embedding generated from BF16 | `quantized` |
+| `qwen3_8_27b_nvfp4` | Main Text imports NVFP4 for MLP projections below layer 56 and row-FP8 for its other selected projections/output head; the embedding is row-FP8 generated from base BF16. Optional components use the groupwise choices described below | `quantized` |
+| `qwen3_8_27b_modelopt_nvfp4` | Main Text imports every MLP projection from a ModelOpt mixed-precision NVFP4 source. Attention, non-A/B GDN projections, embedding and output head become row-FP8 from base BF16; GDN A/B remain BF16. Optional components use the groupwise choices described below | `quantized` |
 
 These names select conversion choices. Runtime execution is selected from the architecture,
 configuration and actual bindings stored in the artifact. `--name` sets the public model name;
@@ -77,10 +104,32 @@ python3 -m tools.convert \
   --out models/qwen3_8_27b_nvfp4.ninfer
 ```
 
-MTP and Vision use the main source. DFlash and DFlash2 use the corresponding named source, supplied
-as `--source dflash=PATH` or `--source dflash2=PATH`. An artifact may contain several optional
-components; the Engine loads only the ones selected at startup, including at most one speculative
-backend. Component availability and startup selection are independent.
+For a ModelOpt mixed-precision source, select its dedicated recipe while retaining the BF16
+checkpoint as `--model`:
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Qwen3.8-27B \
+  --recipe qwen3_8_27b_modelopt_nvfp4 \
+  --source quantized=/path/to/Qwen3.8-27B-NVFP4-ModelOpt \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --proposal \
+  --name qwen3.8-27b \
+  --out models/qwen3_8_27b_modelopt_nvfp4.ninfer
+```
+
+This recipe requires the complete mixed-precision module inventory declared by the ModelOpt
+`hf_quant_config.json`. It imports the compatible NVFP4 MLP code and scale words. ModelOpt's
+per-tensor FP8 projections and NVFP4 output head do not match the native row-FP8 output-head and
+projection contracts, so the recipe produces those representations from the base BF16 source.
+
+MTP and Vision use the main source and the ordinary optional-component groupwise formats. DFlash
+and DFlash2 use the corresponding named source, supplied as `--source dflash=PATH` or
+`--source dflash2=PATH`, and groupwise formats. An artifact may contain several optional components;
+the Engine loads only the ones selected at startup, including at most one speculative backend.
+Component availability and startup selection are independent.
 
 ## Change part of a recipe
 
@@ -111,8 +160,9 @@ python3 -m tools.convert \
 ```
 
 The default entry function is `configure`; `--recipe my_recipe.py:customize` selects another
-function. Alternatively, use an official `--recipe` and put only the changes in an `--override`
-file. Overrides run after the base recipe and optional proposal-head setup.
+function. Alternatively, use an official `--recipe` and put only the changes in an `--override`.
+`--override` uses the same `FILE[:FUNCTION]` syntax and defaults to `configure`. Overrides run after
+the base recipe and optional proposal-head setup.
 
 `model.parameters` maps logical names to their shape, source and mathematical inputs. To see the
 available names for your selected components, a recipe can print them:
@@ -149,12 +199,15 @@ region, so arbitrary splits of one projection are not automatically executable.
 
 The converter currently writes these formats:
 
-| Format | Built-in method for floating-point input | Import of already encoded input |
-|---|---|---|
-| `bf16`, `fp32`, `int32` | `cast_direct` | Direct words through the source reader |
-| `q4_g64_fp16`, `q5_g64_fp16`, `q6_g64_fp16`, `q8_g32_fp16` | `grouped_absmax` | Supply a custom method/source if needed |
-| `fp8_e4m3fn_row_bf16` | `fp8_row_maxabs` | `import_encoded` |
-| `nvfp4` | Supply a custom quantizer | `import_encoded` |
+| Format | Default layout and geometry | Built-in method for floating-point input | Import of already encoded input |
+|---|---|---|---|
+| `bf16`, `fp32`, `int32` | `contiguous_le_v1`; rank 0 through 16 | `cast_direct` | No separate encoded-word import; `cast_direct` reads logical values and casts them |
+| `q4_g64_fp16`, `q5_g64_fp16`, `q6_g64_fp16`, `q8_g32_fp16` | `row_split_k128_v1`; positive rank 2, with K padded to 128 | `grouped_absmax` | Supply a custom method/source if needed |
+| `fp8_e4m3fn_row_bf16` | `row_scale_v1`; positive rank 2 | `fp8_row_maxabs` | `import_encoded` |
+| `nvfp4` | `block_scale_k16_m128x4_v1`; rank 2, N divisible by 128 and K by 64 | Supply a custom quantizer | `import_encoded` |
+
+`layout="auto"` selects only the registered layout shown above; it does not relax the layout's
+rank or divisibility requirements.
 
 `grouped_absmax` stores one FP16 scale per group and signed integer codes. `fp8_row_maxabs` first
 rounds input values to BF16, then produces E4M3FN codes and one BF16 multiplier per row.
@@ -217,7 +270,8 @@ given order, `recipe.separate(names)` disables automatic grouping for those para
 `recipe.share(parameter, target)` binds equal-shaped parameters to the same physical data.
 Explicit groups must be disjoint and use unsplit selections with matching format, layout, method
 and method parameters. NVFP4 parents also require a common weight divisor. Automatic grouping is
-limited to built-in methods; custom methods can request explicit groups.
+limited to built-in methods. To pass several parameters to a custom method as one parent, the
+recipe author must create an explicit `recipe.group(...)` before preparation.
 
 Grouping chooses storage. Model execution code chooses the supported fused implementation. The
 loader uploads the stored representation, without repacking an inconvenient arrangement.
@@ -225,9 +279,11 @@ loader uploads the stored representation, without repacking an inconvenient arra
 ## Read another source
 
 `--model` supplies the main config, default resources and the source named `base`. Add other
-Safetensors sources with repeated `--source NAME=PATH`; they are opened when used. Single-file
-Safetensors and indexed shards are supported. Additional tensor-only sources can omit model config;
-sources carrying config are checked against the relevant model geometry.
+Safetensors sources with repeated `--source NAME=PATH`; they are opened when used. A standalone
+source file must have the `.safetensors` suffix. A directory may contain `model.safetensors` or
+`model.safetensors.index.json`; an index JSON may also be passed directly. Additional tensor-only
+sources can omit model config; sources carrying config are checked against the relevant model
+geometry.
 
 To replace a logical parameter from another compatible checkpoint in a recipe:
 
@@ -242,9 +298,39 @@ recipe.assign(
 ```
 
 Supply `--source alternate=/path/to/alternate-checkpoint`. `model.source` applies the architecture's
-source-name and axis mapping, including Q/gate extraction. The built-in compressed-tensors reader
-understands the implemented per-row FP8 and NVFP4 code/scale conventions. It can expose decoded
-values for another quantizer or encoded rows for exact import.
+source-name and axis mapping, including Q/gate extraction. The built-in matrix reader understands
+the implemented compressed-tensors per-row FP8 and NVFP4 conventions, plus the supported ModelOpt
+NVFP4 convention. It can expose decoded values for another quantizer or encoded rows for exact
+import.
+
+For a logical `[N,K]` matrix named `<prefix>.weight`, imported NVFP4 requires:
+
+- `<prefix>.weight_packed`: `U8[N,K/2]`, with the earlier logical element in the low nibble;
+- `<prefix>.weight_scale`: `F8_E4M3[N,K/16]`, containing nonnegative finite E4M3FN words;
+- `<prefix>.weight_global_scale`: one positive finite F32 divisor.
+
+An `AllowA4` use additionally requires `<prefix>.input_global_scale` as one positive finite F32
+divisor, unless the recipe supplies that Use's `activation_input_divisor` auxiliary explicitly.
+
+Source decoding requires K divisible by 16; the registered output layout additionally requires N
+divisible by 128 and K divisible by 64. Imported `fp8_e4m3fn_row_bf16` requires
+`<prefix>.weight` as `F8_E4M3[N,K]` and `<prefix>.weight_scale` as BF16 with exactly one element per
+row. Per-tensor, per-block, FP32-scale or differently named FP8 schemas are not accepted by this
+reader.
+
+For a ModelOpt NVFP4 matrix named `<prefix>`, the built-in adapter requires:
+
+- `<prefix>.weight`: `U8[N,K/2]`, with the earlier logical element in the low nibble;
+- `<prefix>.weight_scale`: `F8_E4M3[N,K/16]`, containing nonnegative finite E4M3FN words;
+- `<prefix>.weight_scale_2`: one positive finite F32 weight multiplier;
+- `<prefix>.input_scale`: one positive finite F32 activation multiplier.
+
+NInfer stores divisors rather than ModelOpt's multipliers, so the adapter stores the FP32-rounded
+reciprocal of each scalar after validating that both the scalar and reciprocal are finite and
+positive. The dedicated official recipe also requires the exact `MIXED_PRECISION` layer inventory
+from `hf_quant_config.json`; it rejects missing, extra or differently classified quantized modules.
+ModelOpt scalar-FP8 matrices are not compatible encoded input for
+`fp8_e4m3fn_row_bf16`, whose scale contract is one BF16 multiplier per row.
 
 For another file format or quantization convention, provide a `LogicalSource`. Its value reader
 accepts flat C-order element bounds and returns exactly that range. For example, a recipe can read
@@ -337,9 +423,11 @@ working set. `--rows-per-chunk` defaults to 512; custom methods own how they use
 
 ## Resources, files and inspection
 
-Text includes `tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` and
-`generation_config.json`. Vision adds its image and video processor configs. Resources come from
-`--model`; `--resource ROLE=PATH` replaces a selected resource:
+Every conversion requires `tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` and
+`generation_config.json`. Selecting Vision additionally requires `preprocessor_config.json` and
+`video_preprocessor_config.json`. By default these files come from `--model`.
+`--resource ROLE=PATH` replaces one required final resource; overriding a Vision role without
+selecting Vision, or using an unknown role, is an error:
 
 ```text
 --resource chat_template.jinja=/path/to/chat_template.jinja
@@ -362,18 +450,31 @@ one file. Larger artifacts use an entry such as `models/my_qwen.ninfer` plus
 `my_qwen.ninfer.part-0001`, `my_qwen.ninfer.part-0002`, and so on in the same directory. Pass only the
 entry path to NInfer and keep all its recorded parts together. `--max-file-bytes` changes the limit.
 
-Conversion writes `models/my_qwen.ninfer.conversion.json` alongside the artifact, recording sources,
-methods, formats, component configs, files and timing. Existing output files are not overwritten.
-The report is useful for reproducing a recipe; the Engine reads the artifact itself.
+Conversion writes `models/my_qwen.ninfer.conversion.json` alongside the artifact. It summarizes the
+selected components, prepared methods/formats, source labels, output files and timing. Existing
+output files are not overwritten. The report is not a complete reproducibility manifest: preserve
+the command, custom recipe/override files, resource inputs and their revisions separately. The
+Engine reads only the artifact.
 
 ```bash
 python3 -m tools.artifact.inspect models/my_qwen.ninfer --objects --bindings
-python3 -m tools.artifact.inspect models/my_qwen.ninfer --json
+python3 -m tools.artifact.inspect models/my_qwen.ninfer --json --objects --bindings
 ```
 
-Inspection reads directory facts without running inference. Conversion rejects missing logical
-coverage, invalid source geometry, unsupported encodings and invalid method output. Actual Op
-support is checked by consumers during preparation, resource queries, warmup or execution. A
-valid file may need additional Op support before its chosen combination can run. Exercise the
-phases and optional components you intend to use through the normal [CLI](cli.md) or
-[serving](serving.md) route.
+Inspection validates entry framing and directory records and lists the declared files, objects,
+bindings and Uses without running inference. It does not read or numerically validate every tensor
+payload, and listing objects does not by itself open every continuation shard. Conversion rejects
+missing logical coverage, invalid source geometry, unsupported encodings and invalid method output.
+Actual Op support is checked by consumers during preparation, resource queries, warmup or
+execution. A valid file may need additional Op support before its chosen combination can run.
+
+Validate execution through the normal Engine route:
+
+```bash
+./build/apps/ninfer models/my_qwen.ninfer \
+  --prompt "Reply with OK." --max-context 4096 --max-new 8 --greedy
+```
+
+Repeat with `--vision` and/or `--spec mtp|dflash|dflash2 --draft-tokens N` for every optional
+component intended for distribution. The [CLI](cli.md) and [serving](serving.md) guides describe
+those routes.

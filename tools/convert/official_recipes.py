@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded
+from .sources.modelopt import validate_modelopt_inventory
 
 Q4 = "q4_g64_fp16"
 Q5 = "q5_g64_fp16"
@@ -174,10 +175,65 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
+def qwen3_8_27b_modelopt_nvfp4(model, recipe, sources):
+    """Import ModelOpt NVFP4 MLPs and quantize other projections from BF16."""
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    quantized = sources["quantized"]
+    source_prefix = (
+        "model.language_model." if "text_config" in quantized.config else "model."
+    )
+    expected = {"lm_head": "NVFP4"}
+    for layer, kind in enumerate(model.config["layer_types"]):
+        prefix = source_prefix + f"layers.{layer}."
+        for projection in ("gate_proj", "up_proj", "down_proj"):
+            expected[prefix + "mlp." + projection] = "NVFP4"
+        if kind == "full_attention":
+            for projection in ("q_proj", "k_proj", "v_proj", "o_proj"):
+                expected[prefix + "self_attn." + projection] = "FP8"
+        else:
+            for projection in ("in_proj_qkv", "in_proj_z", "out_proj"):
+                expected[prefix + "linear_attn." + projection] = "FP8"
+    validate_modelopt_inventory(quantized, expected)
+
+    recipe.assign("text/token_embedding", format=FP8, method=fp8_row_maxabs)
+    recipe.assign(
+        "text/output_head",
+        format=FP8,
+        method=fp8_row_maxabs,
+        activation_policy="AllowA8",
+    )
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/layers/") or not parameter.projection:
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.separate(name)
+        elif "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+        else:
+            recipe.assign(
+                name,
+                format=FP8,
+                method=fp8_row_maxabs,
+                activation_policy="AllowA8",
+            )
+    for layer in range(model.config["num_hidden_layers"]):
+        prefix = f"text/layers/{layer}/mlp/"
+        recipe.group((prefix + "gate", prefix + "up"))
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
     "qwen3_8_27b": qwen3_8_27b,
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
+    "qwen3_8_27b_modelopt_nvfp4": qwen3_8_27b_modelopt_nvfp4,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }

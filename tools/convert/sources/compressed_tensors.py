@@ -1,8 +1,4 @@
-"""Interpret the current compressed-tensors FP8/NVFP4 fields and scale semantics.
-
-The matrix resolver also accepts direct tensors. Resolution remains lazy so a
-recipe can replace an unused checkpoint source before its weights are inspected.
-"""
+"""Interpret compressed-tensors FP8/NVFP4 fields and scale semantics."""
 
 from __future__ import annotations
 
@@ -14,7 +10,7 @@ import torch
 from tools.artifact.codecs.fp8_row import validate_fp8_row_words
 from tools.artifact.formats import valid_positive_fp32_word
 from .logical import EncodedRows, LogicalSource
-from .safetensors import SafetensorsSource, tensor_source
+from .safetensors import SafetensorsSource
 
 
 def _divisor_word(store: SafetensorsSource, name: str) -> bytes:
@@ -130,51 +126,4 @@ def compressed_matrix_source(
         encoded,
         (lambda: divisor("weight_global_scale")) if format == "nvfp4" else None,
         (lambda: divisor("input_global_scale")) if format == "nvfp4" else None,
-    )
-
-
-def matrix_source(
-    store: SafetensorsSource,
-    name: str,
-    shape: tuple[int, int],
-    format: str | None = None,
-) -> LogicalSource:
-    """Resolve the selected matrix's encoding lazily, after recipe source overrides."""
-    prefix = name.removesuffix(".weight")
-    resolved: LogicalSource | None = None
-
-    def resolve() -> LogicalSource:
-        nonlocal resolved
-        if resolved is None:
-            actual = format
-            if actual is None and store.has(prefix + ".weight_packed"):
-                actual = "nvfp4"
-            if actual is None and store.describe(name).dtype == "F8_E4M3":
-                actual = "fp8_e4m3fn_row_bf16"
-            resolved = (
-                tensor_source(store, name, shape)
-                if actual is None
-                else compressed_matrix_source(store, prefix, shape, actual)
-            )
-        return resolved
-
-    def encoded(begin: int, end: int) -> EncodedRows:
-        reader = resolve().read_encoded
-        if reader is None:
-            raise ValueError(f"{name}: selected source does not provide encoded rows")
-        return reader(begin, end)
-
-    def divisor(which: str) -> bytes:
-        read = getattr(resolve(), which)
-        if read is None:
-            raise ValueError(f"{name}: selected source does not provide {which}")
-        return read()
-
-    return LogicalSource(
-        shape,
-        f"{store.path}:{name}",
-        lambda begin, end: resolve().values(begin, end),
-        encoded,
-        lambda: divisor("weight_divisor"),
-        lambda: divisor("input_divisor"),
     )

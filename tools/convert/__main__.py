@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 import importlib.util
+import os
 from pathlib import Path
 import sys
 from collections.abc import Mapping
@@ -61,9 +62,14 @@ def _pairs(values, label):
 def _function(value: str):
     if value in RECIPES:
         return RECIPES[value]
-    filename, separator, function = value.rpartition(":")
-    if not separator:
+    direct = Path(value)
+    if direct.is_file():
         filename, function = value, "configure"
+    else:
+        filename, separator, function = value.rpartition(":")
+        drive_only = os.name == "nt" and len(filename) == 1 and filename.isalpha()
+        if not separator or drive_only:
+            filename, function = value, "configure"
     path = Path(filename).resolve()
     spec = importlib.util.spec_from_file_location("ninfer_user_recipe", path)
     if spec is None or spec.loader is None:

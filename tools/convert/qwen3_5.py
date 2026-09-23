@@ -15,7 +15,7 @@ from .model import Model, Parameter
 from .resources import load_resources
 from .sources.logical import LogicalSource, select_rows, transpose_source
 from .sources.safetensors import SafetensorsSource, tensor_source
-from .sources.compressed_tensors import matrix_source
+from .sources.matrix import matrix_source
 
 _TEXT_ARCHITECTURES = {
     "Qwen3_5ForCausalLM": False,
