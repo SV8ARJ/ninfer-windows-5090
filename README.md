@@ -28,11 +28,24 @@ the weights again.
 
 ## Quick start
 
-NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, a CUDA toolkit supporting `sm_120a`,
-CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
-(`libavformat`, `libavcodec`, `libavutil`, and `libswscale`), and `libcurl >= 7.85`.
-CUDA 13.1 is the validated development toolkit; CMake does not impose a CUDA version floor.
-The build rejects CUDA architectures other than `sm_120a`.
+NInfer supports 64-bit Linux and native 64-bit Windows on an NVIDIA GeForce RTX 5090 with a CUDA
+toolkit supporting `sm_120a`. CUDA 13.1 is the validated development toolkit; CMake does not impose
+a CUDA version floor. The build rejects CUDA architectures other than `sm_120a`.
+
+Linux requires CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development
+libraries (`libavformat`, `libavcodec`, `libavutil`, and `libswscale`), and `libcurl >= 7.85`.
+
+Native Windows requires Visual Studio 2022 with the C++ toolchain, CMake 3.28 or newer, Ninja, and
+CUDA 13.1. The repository includes the required MSVC FFmpeg and libcurl import libraries and filtered
+headers under `windows-libs/`. Configure from an x64 Visual Studio Developer Command Prompt:
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+The resulting `.exe` files require the FFmpeg, libcurl, and their dependent runtime DLLs beside the
+executables or on `PATH`.
 
 Build the product binaries:
 
@@ -116,6 +129,10 @@ Redirected stderr receives persistent readable progress without terminal control
 `--log-level debug` for complete startup detail. Option and local input errors remain direct command
 diagnostics. Use `--messages FILE` and `--vision` for structured image/video input; see the
 [CLI guide](docs/cli.md) and [committed examples](examples/cli/).
+
+CUDA synchronization defaults to `spin` for lower host-to-device synchronization latency. Set
+`NINFER_CUDA_SYNC=blocking`, `yield`, or `auto` before starting the CLI or server to select a
+different schedule; see [CUDA synchronization](docs/cli.md#cuda-synchronization).
 
 ## Resource-aware long-context reuse
 
