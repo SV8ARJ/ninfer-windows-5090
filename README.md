@@ -2,7 +2,7 @@
 
 > Selected checkpoints. Maximum single-GPU inference performance.
 
-## Select branch "Windows clean"
+## Latest release branch : Select "Windows port"
 Visual Studio 2022 (MSVC) and CUDA 13.1 targeting sm_120a (RTX 5090)
 
 Made possible with the help of Deepseek. Sharing in the hope that someone finds it useful.
