@@ -10,30 +10,11 @@ Made possible with the help of Deepseek. Sharing in the hope that someone finds 
 >  RTX5090 : 400W maximum
 <img width="234" height="333" alt="2026-08-19 11_06_34-System Resources v0 2" src="https://github.com/user-attachments/assets/0eefa086-2e5d-4369-b7c7-902444d817ea" />
 
-### Third release  
-Ported the fp8 format for the KV cache  
-Ported latest changes from original repo  
 
-### Second release - NVFP4 optimized with Sol
-> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 200000 --lm-head-draft --vision  
-temp:0.8  
-
- **low thinking** : around 170t/s (about 200t/sec with no power limit - 600 W)  
-[info] ninfer-serve: [req 12] done finish=stop_token prompt=222 gen=14577 cache=0 reuse=full_reset ttft=218ms prefill=1041.9tok/s decode=169.7tok/s wall=86.29s speculative=mtp 3.42tok/round (80.8%)  
-
- **medium thinking** : around 150t/s  
-[info] ninfer-serve: [req 11] done finish=stop_token prompt=192 gen=31333 cache=0 reuse=full_reset ttft=149ms prefill=1308.8tok/s decode=148.5tok/s wall=211.55s speculative=mtp 3.04tok/round (68.1%)  
-
- **xhigh thinking** : around 140t/s  
-[info] ninfer-serve: [req 10] done finish=stop_token prompt=234 gen=69108 cache=0 reuse=full_reset ttft=298ms prefill=807.9tok/s decode=139.8tok/s wall=495.47s speculative=mtp 2.98tok/round (65.9%)  
-
-**100k tokens prefill** : 3727 tok/s average  
-
------
-### First release :
-> ninfer-serve.exe models\qwen3_8_27b_nvfp4.ninfer --model-id qwen3.8-27b --host 0.0.0.0 --port 11435 --max-context 200000  --kv-dtype int8   --draft-tokens 3 --spec mtp  --default-max-tokens 128000 --lm-head-draft
-
-[info] ninfer-serve: [req 1] done finish=stop_token prompt=205 gen=59061 cache=0 reuse=full_reset ttft=304ms prefill=680.0tok/s decode=136.5tok/s wall=433.85s speculative=mtp 2.83tok/round (61.1%)
+2026-09-27 11:00:12.120  INFO  throughput | 5.0s | decode 266.3 tok/s (1,329 tok) | running 1 (decode-ready 1) | batch 1.00 | host 0.5% (24.1 ms)
+2026-09-27 11:00:17.125  INFO  throughput | 5.0s | decode 254.0 tok/s (1,271 tok) | running 1 (decode-ready 1) | batch 1.00 | host 0.5% (24.9 ms)
+2026-09-27 11:00:22.116  INFO  throughput | 5.0s | decode 223.2 tok/s (1,114 tok) | running 1 (decode-ready 1) | batch 1.00 | host 0.5% (23.9 ms)
+2026-09-27 11:00:22.669  INFO  req#1 done | openai-chat | stop token | prompt 112 | output 70,031 | cache 0 (0.0%) | TTFT 93.0 ms | total 6m 35.6s | prefill 1.77k tok/s | decode 177.3 tok/s | dflash2 accepted 47,085/160,622 (29.3%)
 
 
 -----
