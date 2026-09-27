@@ -7,7 +7,7 @@ single NVIDIA GeForce RTX 5090. It runs text, image, and video prompts through a
 OpenAI-/Anthropic-compatible HTTP APIs. The runtime is deliberately specialized: one GPU, one
 resident model, and a startup-fixed capacity of one to eight active requests.
 
-NInfer supports seven artifact identities. The quick-start commands use Qwen3.8-27B NVFP4.
+NInfer supports eight artifact identities. The quick-start commands use Qwen3.8-27B NVFP4.
 
 | Model | Weights | Artifact | Download and model card |
 |---|---|---|---|
@@ -15,12 +15,22 @@ NInfer supports seven artifact identities. The quick-start commands use Qwen3.8-
 | Qwen3.6-27B | `nvfp4` | `qwen3_6_27b_nvfp4.ninfer` | [Qwen3.6-27B NVFP4](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) |
 | Qwen3.8-27B | `groupwise-int` | `qwen3_8_27b.ninfer` | [Qwen3.8-27B](https://huggingface.co/neroued/Qwen3.8-27B-NInfer) |
 | Qwen3.8-27B | `nvfp4` | `qwen3_8_27b_nvfp4.ninfer` | [Qwen3.8-27B NVFP4](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer) |
+| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.ninfer` | [Qwen3.8-27B NVFP4F](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer) |
 | Qwen3.8-27B-Uncensored | `groupwise-int` | `qwen3_8_27b_uncensored.ninfer` | local conversion |
 | Qwen3.8-27B-Uncensored | `nvfp4` | `qwen3_8_27b_uncensored_nvfp4.ninfer` | local conversion |
 | Qwen3.6-35B-A3B | `groupwise-int` | `qwen3_6_35b_a3b.ninfer` | [Qwen3.6-35B-A3B](https://huggingface.co/neroued/Qwen3.6-35B-A3B-NInfer) |
 
 The artifact identity fixes the exact model and weight profile. Every artifact also embeds the
 tokenizer, chat template, and media frontend resources required by its registered target.
+
+`nvfp4full` is a v3 Qwen3.8 weight profile that uses NVFP4 for more eligible parents than the
+mixed FP8/NVFP4 `nvfp4` profile. It requires the v3 runtime; the legacy clean and optimized runtime
+branches do not read v3 artifacts. Optional DFlash2 components are selected by artifact contents. The
+local `qwen3_8_27b_nvfp4full.ninfer` was verified on RTX 5090 with a seven-token DFlash2 window:
+
+```cmd
+ninfer.exe models\qwen3_8_27b_nvfp4full.ninfer --prompt "Reply with exactly: OK" --max-new 8 --greedy --spec dflash2 --draft-tokens 7 --lm-head-draft
+```
 
 ## Windows RTX 5090 builds
 
