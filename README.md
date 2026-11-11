@@ -42,6 +42,17 @@ in Text layers 0–55 and row-scaled FP8 for the token embedding, attention inpu
 GDN Q/K/V/Z and output projections, output head, and remaining MLP weights. All five 27B artifacts
 retain the same Text, Vision, MTP, prefix-reuse, CLI, and serving routes.
 
+## Local Windows build tree
+
+This checkout is a standalone build tree with one branch, `dev`, based on
+`natpate/ninfer-windows` `dev` (`84e30457`) plus the Windows build fixes. Prebuilt executables
+are in `bin\` (`ninfer`, `ninfer-serve`, `ninfer-perplexity`, `ninfer_bench`).
+
+The local rebuild uses the committed `build-support/` find modules and `windows-libs/` instead
+of vcpkg. Exact toolchain versions, configure/build commands, deployment, and the smoke test are
+in [`BUILD-NOTES.md`](BUILD-NOTES.md). The vcpkg instructions below remain valid for a fresh
+fork checkout.
+
 ## Upstream
 
 NInfer is [Neroued](https://github.com/Neroued)'s project
