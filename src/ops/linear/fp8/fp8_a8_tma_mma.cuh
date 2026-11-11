@@ -21,6 +21,15 @@ struct alignas(128) Fp8TmaDescriptors {
     CUtensorMap weight;
 };
 
+#ifdef _WIN32
+// MSVC cannot pass an alignas(128) struct by value as a kernel parameter (C2719). Keep the
+// descriptor block in a device buffer and hand the kernel a pointer; the TMA unit reads the
+// tensor map from that address. POSIX keeps the by-value __grid_constant__ spelling.
+#define NINFER_FP8_TMA_DESCRIPTOR_PARAM const Fp8TmaDescriptors* __restrict__
+#else
+#define NINFER_FP8_TMA_DESCRIPTOR_PARAM const __grid_constant__ Fp8TmaDescriptors
+#endif
+
 struct Fp8TmaSplitKPlan {
     int full_tiles = 0;
     int tail_tiles = 0;
@@ -100,7 +109,7 @@ template <class Schedule, bool FullTokens, class Output, class Epilogue, bool Sp
           class RowPolicy = Fp8IdentityRows>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma_mma_kernel(
-    const __grid_constant__ Fp8TmaDescriptors descriptors, Fp8A8Operands operands, Output output,
+    NINFER_FP8_TMA_DESCRIPTOR_PARAM descriptors, Fp8A8Operands operands, Output output,
     Epilogue epilogue, RowPolicy row_policy, int token_offset, int count, Fp8TmaSplitKPlan plan,
     float* partials) {
     constexpr int BT = Schedule::kBlockTokens, BR = Schedule::kBlockRows;
@@ -146,11 +155,16 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
 
     if (threadIdx.x < Schedule::kProducerThreads) {
         if (threadIdx.x == 0) {
+#ifdef _WIN32
+            const Fp8TmaDescriptors* descriptor_block = descriptors;
+#else
+            const Fp8TmaDescriptors* descriptor_block = &descriptors;
+#endif
             for (int kt = 0; kt < tiles_k; ++kt) {
                 const int stage = kt % S;
                 cta_mbarrier_wait(empty + stage, 1U ^ ((kt / S) & 1U));
                 cta_mbarrier_arrive_expect_tx(full + stage, (BT + BR) * BK);
-                fp8_tma_load(activation + stage * BT * BK, &descriptors.activation,
+                fp8_tma_load(activation + stage * BT * BK, &descriptor_block->activation,
                              (k_begin + kt) * BK, token_begin, full + stage);
                 if constexpr (RowPolicy::kPaired) {
                     // Each consumer warp owns both gate/up fragments. Load their contiguous
@@ -158,14 +172,14 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
                     constexpr int span = Schedule::kWarpRows / 2;
 #pragma unroll
                     for (int local = 0; local < BR; local += span) {
-                        fp8_tma_load(weight + (stage * BR + local) * BK, &descriptors.weight,
-                                     (k_begin + kt) * BK,
+                        fp8_tma_load(weight + (stage * BR + local) * BK,
+                                     &descriptor_block->weight, (k_begin + kt) * BK,
                                      row_policy.weight_row(row_begin, local, operands.rows),
                                      full + stage);
                     }
                 } else {
-                    fp8_tma_load(weight + stage * BR * BK, &descriptors.weight, (k_begin + kt) * BK,
-                                 row_begin, full + stage);
+                    fp8_tma_load(weight + stage * BR * BK, &descriptor_block->weight,
+                                 (k_begin + kt) * BK, row_begin, full + stage);
                 }
             }
         }
@@ -274,6 +288,27 @@ __global__ void fp8_a8_tma_split_k_reduce(Fp8A8Operands p, const float* partials
     }
 }
 
+#ifdef _WIN32
+// cudaMallocAsync is pool-backed; the free is stream-ordered after the kernel that
+// consumes the block.
+struct Fp8TmaDescriptorBlock {
+    Fp8TmaDescriptors* device = nullptr;
+
+    explicit Fp8TmaDescriptorBlock(cudaStream_t stream) {
+        CUDA_CHECK(cudaMallocAsync(reinterpret_cast<void**>(&device), sizeof(Fp8TmaDescriptors),
+                                   stream));
+    }
+
+    Fp8TmaDescriptorBlock(const Fp8TmaDescriptorBlock&)            = delete;
+    Fp8TmaDescriptorBlock& operator=(const Fp8TmaDescriptorBlock&) = delete;
+
+    ~Fp8TmaDescriptorBlock() {
+        if (device == nullptr) { return; }
+        CUDA_CHECK(cudaFreeAsync(device, nullptr));
+    }
+};
+#endif
+
 template <class Schedule, class Output, class Epilogue, class RowPolicy = Fp8IdentityRows>
 void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilogue,
                            cudaStream_t stream, float* partials = nullptr,
@@ -290,6 +325,11 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
     const Fp8TmaDescriptors descriptors{
         fp8_tma_map(p.x, p.tokens, p.k, Schedule::kBlockTokens, Schedule::kBlockK),
         fp8_tma_map(p.codes, p.rows, p.k, weight_span, Schedule::kBlockK)};
+#ifdef _WIN32
+    Fp8TmaDescriptorBlock block(stream);
+    CUDA_CHECK(cudaMemcpyAsync(block.device, &descriptors, sizeof(descriptors),
+                               cudaMemcpyHostToDevice, stream));
+#endif
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const int blocks  = p.rows / Schedule::kBlockRows * div_up(count, Schedule::kBlockTokens);
         const auto plan   = fp8_tma_split_k_plan<Schedule>(blocks, p.k);
@@ -300,8 +340,13 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
                 fp8_tma_scratch_bytes<Schedule, Epilogue> + Schedule::kBarrierBytes;
             const int dynamic = fp8_prepare_shared<bytes, kernel, true>();
             const int grid    = Split ? plan.full_tiles + plan.split_ctas : blocks;
+#ifdef _WIN32
+            kernel<<<grid, Schedule::kThreads, dynamic, stream>>>(
+                block.device, p, output, epilogue, row_policy, offset, count, plan, partials);
+#else
             kernel<<<grid, Schedule::kThreads, dynamic, stream>>>(
                 descriptors, p, output, epilogue, row_policy, offset, count, plan, partials);
+#endif
             CUDA_CHECK(cudaGetLastError());
             if constexpr (Split) {
                 fp8_a8_tma_split_k_reduce<Schedule>
